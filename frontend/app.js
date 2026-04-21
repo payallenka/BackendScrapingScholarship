@@ -227,26 +227,23 @@ function renderCard(s) {
     <div class="card">
       <div class="card-header">
         <div class="card-title">${escHtml(s.title)}</div>
-        <span class="source-badge ${badge}">${escHtml(s.source_site)}</span>
       </div>
-      ${s.organization ? `<div class="card-org">🏛 ${escHtml(s.organization)}</div>` : ''}
-
-      <div class="card-info-grid">
-        <div class="info-row">
-          <span class="info-label">Level</span>
-          <span class="info-value" style="color:${degreeColor}">${escHtml(degreeText)}</span>
+      <div class="card-meta">
+        <div class="card-meta-row">
+          <span class="card-meta-icon">💰</span>
+          <span class="card-meta-val" style="color:${fundingColor}">${fundingIcon} ${escHtml(fundingDisplay)}</span>
         </div>
-        <div class="info-row">
-          <span class="info-label">Funding</span>
-          <span class="info-value" style="color:${fundingColor}">${fundingIcon} ${escHtml(fundingDisplay)}</span>
+        <div class="card-meta-row">
+          <span class="card-meta-icon">📅</span>
+          <span class="card-meta-val" style="color:${deadlineColor}">${escHtml(deadlineDisplay)}</span>
         </div>
-        <div class="info-row">
-          <span class="info-label">Eligibility</span>
-          <span class="info-value">${eligIcon} ${escHtml(eligText)}</span>
+        <div class="card-meta-row">
+          <span class="card-meta-icon">${eligIcon}</span>
+          <span class="card-meta-val">${escHtml(eligText)}</span>
         </div>
-        <div class="info-row">
-          <span class="info-label">Deadline</span>
-          <span class="info-value" style="color:${deadlineColor};font-weight:${s.deadline ? '600' : '400'}">${escHtml(deadlineDisplay)}</span>
+        <div class="card-meta-row">
+          <span class="card-meta-icon">🎓</span>
+          <span class="card-meta-val" style="color:${degreeColor}">${escHtml(degreeText)}</span>
         </div>
       </div>
     </div>`;

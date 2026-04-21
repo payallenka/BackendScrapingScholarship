@@ -36,7 +36,10 @@ class NormalizedScholarship(BaseModel):
     @field_validator("title")
     @classmethod
     def clean_title(cls, v: str) -> str:
-        return html_lib.unescape(v).strip()
+        v = html_lib.unescape(v).strip()
+        v = re.sub(r"(?i)\s+for\s+(?:young|emerging|african|nigerian|international|students|women|graduates|researchers|changemakers|scientists|journalists|entrepreneurs|south africans|kenyans|ghanaians|leaders).*?$", "", v)
+        v = re.sub(r"(?i)\s*\((?:fully funded|usd|eur|gbp|\d+-year|partially funded|partial).*?\)", "", v)
+        return v.strip().strip('.')
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +197,9 @@ def parse_deadline(text: str) -> Optional[str]:
         return None
     text = html_lib.unescape(text.strip())
 
+    text = re.split(r"(?i)\s*Applications?\b.*$", text)[0].strip()
+    text = re.sub(r"(?i)\(midnight\)", "", text)
+
     # Strip leading label prefixes
     text = re.sub(
         r"(?i)^(?:application\s+)?(?:deadline|closing\s+date|due\s+date|apply\s+by)[:\s]+",
@@ -341,7 +347,9 @@ def make_scholarship(
     if deadline_raw:
         cleaned = html_lib.unescape(deadline_raw).strip()
         cleaned = re.sub(r"(?i)^(?:is|are|was|will\s+be|falls?\s+on|set\s+for)\s+", "", cleaned)
+        cleaned = re.split(r"(?i)\s*Applications?\b.*$", cleaned)[0].strip()
         cleaned = re.split(r"\.\s+[A-Z]|Read more|&raquo|»|\s{2,}", cleaned)[0].strip()
+        cleaned = re.sub(r"(?i)\(midnight\)", "", cleaned).strip()
         deadline_raw = cleaned or deadline_raw
 
     # Degree levels

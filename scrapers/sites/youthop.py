@@ -21,7 +21,7 @@ class YouthopScraper(BaseScraper):
         while page <= self.max_pages:
             data = self.get_json(
                 WP_API,
-                params={"per_page": 50, "page": page, "categories": "scholarship", "_fields": "id,title,link,excerpt,date"},
+                params={"per_page": 50, "page": page, "categories": "scholarship", "_fields": "id,title,link,excerpt,content,date"},
             )
             if not data or not isinstance(data, list):
                 # Fallback to HTML
@@ -37,8 +37,11 @@ class YouthopScraper(BaseScraper):
         title = re.sub(r"<[^>]+>", "", post.get("title", {}).get("rendered", "")).strip()
         url = post.get("link", "")
         excerpt = re.sub(r"<[^>]+>", " ", post.get("excerpt", {}).get("rendered", "")).strip()
-        deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<.]+)", excerpt)
-        amount_m = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|full scholarship)", excerpt, re.I)
+        content = re.sub(r"<[^>]+>", " ", post.get("content", {}).get("rendered", ""))
+        content = re.sub(r"\s+", " ", content).strip()
+        search_text = excerpt + " " + content
+        deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<]{3,80})", search_text)
+        amount_m = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|full scholarship)", search_text, re.I)
         return make_scholarship(
             title=title,
             source_url=url,
