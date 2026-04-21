@@ -1,0 +1,81 @@
+"""Scraper for youthop.com/scholarships — WordPress-based."""
+from __future__ import annotations
+import re
+from typing import List
+from scrapers.base import BaseScraper
+from scrapers.normalizer import NormalizedScholarship, make_scholarship
+
+SITE_NAME = "YouthOp"
+BASE_URL = "https://www.youthop.com"
+WP_API = "https://www.youthop.com/wp-json/wp/v2/posts"
+
+
+class YouthopScraper(BaseScraper):
+    name = "youthop"
+    base_url = BASE_URL
+    delay = 1.5
+
+    def scrape(self) -> List[NormalizedScholarship]:
+        results = []
+        page = 1
+        while page <= self.max_pages:
+            data = self.get_json(
+                WP_API,
+                params={"per_page": 50, "page": page, "categories": "scholarship", "_fields": "id,title,link,excerpt,date"},
+            )
+            if not data or not isinstance(data, list):
+                # Fallback to HTML
+                return self._scrape_html()
+            for post in data:
+                results.append(self._parse_post(post))
+            if len(data) < 50:
+                break
+            page += 1
+        return results
+
+    def _parse_post(self, post: dict) -> NormalizedScholarship:
+        title = re.sub(r"<[^>]+>", "", post.get("title", {}).get("rendered", "")).strip()
+        url = post.get("link", "")
+        excerpt = re.sub(r"<[^>]+>", " ", post.get("excerpt", {}).get("rendered", "")).strip()
+        deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<.]+)", excerpt)
+        amount_m = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|full scholarship)", excerpt, re.I)
+        return make_scholarship(
+            title=title,
+            source_url=url,
+            source_site=SITE_NAME,
+            description=excerpt[:800],
+            degree_levels_raw=title + " " + excerpt,
+            deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+            amount=amount_m.group(0) if amount_m else None,
+        )
+
+    def _scrape_html(self) -> List[NormalizedScholarship]:
+        results = []
+        page = 1
+        while page <= self.max_pages:
+            url = f"{BASE_URL}/scholarships/post-graduate" if page == 1 else f"{BASE_URL}/scholarships/post-graduate/page/{page}"
+            soup = self.get_soup(url)
+            if not soup:
+                break
+            articles = soup.find_all("article") or soup.find_all("div", class_=re.compile(r"post|entry", re.I))
+            found = 0
+            for art in articles:
+                link = art.find("a", href=re.compile(r"/scholarships?/"))
+                if not link:
+                    continue
+                title = link.get_text(strip=True)
+                href = link.get("href", "")
+                text = art.get_text(" ", strip=True)
+                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|]+)", text)
+                results.append(make_scholarship(
+                    title=title,
+                    source_url=href if href.startswith("http") else BASE_URL + href,
+                    source_site=SITE_NAME,
+                    degree_levels_raw=title,
+                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                ))
+                found += 1
+            if found == 0:
+                break
+            page += 1
+        return results

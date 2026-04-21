@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScholarshipHub — Global Scholarship Aggregator</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ===== Header ===== -->
+<header>
+  <div class="header-logo">Scholarship<span>Hub</span></div>
+  <div class="search-wrap" id="searchWrap">
+    <span class="search-icon">🔍</span>
+    <input id="searchInput" class="search-input" type="search" placeholder="Search scholarships, organizations, keywords…" autocomplete="off" />
+  </div>
+  <div class="header-actions">
+    <span id="scrapeDot" class="scrape-dot"></span>
+    <button id="scrapeBtn" class="btn btn-primary">Run Scraper</button>
+    <a href="/docs" class="btn btn-outline" target="_blank">API Docs</a>
+  </div>
+</header>
+
+<!-- ===== Tab bar ===== -->
+<nav class="tab-bar">
+  <button class="tab-btn active" data-tab="browse">🔎 Browse All</button>
+  <button class="tab-btn" data-tab="match">✨ Match Me</button>
+</nav>
+
+<!-- ===== Stats bar (Browse only) ===== -->
+<div id="statsBar" class="stats-bar">
+  <div class="stat-chip" style="color:var(--text3)">Loading stats…</div>
+</div>
+
+<!-- ===== BROWSE TAB ===== -->
+<div id="tab-browse" class="tab-content active">
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="filter-group">
+        <span class="filter-label">Degree Level</span>
+        <div class="filter-chips">
+          <button class="chip degree-chip" data-value="undergraduate">Undergrad</button>
+          <button class="chip degree-chip" data-value="masters">Masters</button>
+          <button class="chip degree-chip" data-value="phd">PhD</button>
+          <button class="chip degree-chip" data-value="postgraduate">Postgrad</button>
+          <button class="chip degree-chip" data-value="any">Any</button>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Source</span>
+        <select id="siteSelect" class="filter-select">
+          <option value="">All sources</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Sort By</span>
+        <select id="sortSelect" class="filter-select">
+          <option value="scraped_at:desc">Newest first</option>
+          <option value="scraped_at:asc">Oldest first</option>
+          <option value="deadline:asc">Deadline (soonest)</option>
+          <option value="deadline:desc">Deadline (latest)</option>
+          <option value="title:asc">Title A–Z</option>
+          <option value="amount_usd:desc">Amount (highest)</option>
+        </select>
+      </div>
+
+      <button id="clearFilters" class="clear-btn">Clear all filters</button>
+
+      <div style="margin-top:32px;padding-top:20px;border-top:1px solid var(--border)">
+        <span class="filter-label">About</span>
+        <p style="font-size:0.78rem;color:var(--text3);line-height:1.6">
+          Aggregates scholarships from 22 global databases.
+          Data is normalized to a common schema for easy filtering.
+          Use <strong>Match Me</strong> for AI-powered personalized shortlisting.
+        </p>
+      </div>
+    </aside>
+
+    <!-- Main grid -->
+    <main class="main">
+      <div class="results-header">
+        <div id="totalCount" class="results-count"></div>
+      </div>
+      <div id="grid" class="grid"></div>
+      <div id="pagination" class="pagination"></div>
+    </main>
+  </div>
+</div>
+
+<!-- ===== MATCH ME TAB ===== -->
+<div id="tab-match" class="tab-content">
+  <div class="match-layout">
+
+    <!-- Form panel -->
+    <div class="match-form-panel">
+      <div class="match-form-header">
+        <h2>Find Your Perfect Scholarships</h2>
+        <p>Tell us about yourself and our AI will shortlist the top 10 scholarships from our database that are the best fit for you.</p>
+      </div>
+
+      <form id="matchForm" class="match-form" autocomplete="off">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Your Name <span class="req">*</span></label>
+            <input type="text" id="f-name" class="form-input" placeholder="e.g. Amara Diallo" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nationality / Country <span class="req">*</span></label>
+            <input type="text" id="f-nationality" class="form-input" placeholder="e.g. Nigerian, Kenyan, Indian…" required />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Current Education Level <span class="req">*</span></label>
+            <select id="f-current" class="form-input" required>
+              <option value="">— select —</option>
+              <option value="High School / Secondary">High School / Secondary</option>
+              <option value="Bachelor's Degree">Bachelor's Degree (ongoing)</option>
+              <option value="Bachelor's Degree (completed)">Bachelor's Degree (completed)</option>
+              <option value="Master's Degree">Master's Degree (ongoing)</option>
+              <option value="Master's Degree (completed)">Master's Degree (completed)</option>
+              <option value="PhD">PhD (ongoing)</option>
+              <option value="Working Professional">Working Professional</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Degree You Want to Pursue <span class="req">*</span></label>
+            <select id="f-target" class="form-input" required>
+              <option value="">— select —</option>
+              <option value="undergraduate">Undergraduate / Bachelor's</option>
+              <option value="masters">Master's / Postgraduate</option>
+              <option value="phd">PhD / Doctoral</option>
+              <option value="any">Short course / Fellowship / Any</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Field of Study / Subject Area <span class="req">*</span></label>
+          <input type="text" id="f-field" class="form-input" placeholder="e.g. Computer Science, Public Health, Environmental Engineering, Law…" required />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Academic Background <span class="form-hint">optional</span></label>
+          <input type="text" id="f-background" class="form-input" placeholder="e.g. 3.8 GPA, published research, first-generation student, Dean's list…" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Any Other Preferences <span class="form-hint">optional</span></label>
+          <textarea id="f-extra" class="form-input form-textarea" rows="2" placeholder="e.g. Prefer fully funded, open to studying in Europe, interested in gender equity programs…"></textarea>
+        </div>
+
+        <button type="submit" id="matchBtn" class="btn btn-match">
+          <span id="matchBtnText">✨ Find My Top 10 Scholarships</span>
+          <span id="matchBtnSpinner" class="btn-spinner" style="display:none"></span>
+        </button>
+
+      </form>
+    </div>
+
+    <!-- Right panel — instructions / previous result preview -->
+    <div class="match-info-panel" id="matchInfoPanel">
+      <div class="match-info-content">
+        <div class="match-info-icon">✨</div>
+        <h3>How it works</h3>
+        <div class="match-steps">
+          <div class="match-step-item">
+            <span class="match-step-num">1</span>
+            <div>
+              <strong>Fill in your profile</strong>
+              <p>Your nationality, target degree, and field of study are the most important.</p>
+            </div>
+          </div>
+          <div class="match-step-item">
+            <span class="match-step-num">2</span>
+            <div>
+              <strong>AI shortlisting</strong>
+              <p>Groq AI scans all scholarships in our database and selects the top 10 that fit your profile.</p>
+            </div>
+          </div>
+          <div class="match-step-item">
+            <span class="match-step-num">3</span>
+            <div>
+              <strong>Personalised report</strong>
+              <p>Get a ranked report explaining exactly why each scholarship is right for you — with direct apply links.</p>
+            </div>
+          </div>
+        </div>
+        <div class="match-note">
+          <strong>Powered by Groq + Llama 3.3 70B.</strong>
+          Make sure <code>GROQ_API_KEY</code> is set in your <code>.env</code> file.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== Scholarship detail modal ===== -->
+<div id="modalOverlay" class="modal-overlay">
+  <div class="modal">
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<!-- ===== Match report modal ===== -->
+<div id="reportOverlay" class="modal-overlay">
+  <div class="modal modal-report">
+    <div id="reportContent"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
