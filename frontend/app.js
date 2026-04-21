@@ -338,7 +338,7 @@ function renderPagination() {
 
   let html = `<button class="page-btn" ${cur === 0 ? 'disabled' : ''} onclick="gotoPage(${cur-1})">‹</button>`;
   const range = pageRange(cur, pages);
-  range.forEach((p, i) => {
+  range.forEach((p) => {
     if (p === '…') {
       html += `<span class="page-info">…</span>`;
     } else {
@@ -513,24 +513,32 @@ const matchForm = $('matchForm');
 const matchBtn = $('matchBtn');
 const matchBtnText = $('matchBtnText');
 const matchBtnSpinner = $('matchBtnSpinner');
-const reportOverlay = $('reportOverlay');
-const reportContent = $('reportContent');
+const matchInfoPanel = $('matchInfoPanel');
+const howItWorksHTML = matchInfoPanel.innerHTML;
 
 matchForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const destination = $('f-destination').value;
+  const extra = [$('f-extra').value.trim(), destination ? `Preferred study destination: ${destination}` : ''].filter(Boolean).join('. ');
   const profile = {
     name: $('f-name').value.trim(),
-    nationality: $('f-nationality').value.trim(),
+    nationality: $('f-nationality').value,
     current_level: $('f-current').value,
     target_level: $('f-target').value,
     field: $('f-field').value.trim(),
     background: $('f-background').value.trim() || undefined,
-    extra: $('f-extra').value.trim() || undefined,
+    extra: extra || undefined,
   };
 
   matchBtnText.textContent = 'Searching…';
   matchBtnSpinner.style.display = 'inline-block';
   matchBtn.disabled = true;
+
+  matchInfoPanel.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--text3)">
+      <div class="btn-spinner" style="width:28px;height:28px;border-width:3px;border-color:rgba(79,142,247,0.25);border-top-color:var(--accent)"></div>
+      <div style="font-size:0.88rem">Analysing scholarships…</div>
+    </div>`;
 
   try {
     const res = await fetch(API + '/api/match', {
@@ -543,9 +551,9 @@ matchForm.addEventListener('submit', async (e) => {
       throw new Error(err.detail || `HTTP ${res.status}`);
     }
     const result = await res.json();
-    renderReport(result, profile);
-    reportOverlay.classList.add('open');
+    renderReportInPanel(result, profile);
   } catch (err) {
+    matchInfoPanel.innerHTML = howItWorksHTML;
     alert('Matching failed: ' + err.message);
   } finally {
     matchBtnText.textContent = '✨ Find My Top 10 Scholarships';
@@ -554,7 +562,7 @@ matchForm.addEventListener('submit', async (e) => {
   }
 });
 
-function renderReport(result, profile) {
+function renderReportInPanel(result, profile) {
   const matches = result.matches || [];
   const cards = matches.map(m => {
     const s = m.scholarship || {};
@@ -571,7 +579,7 @@ function renderReport(result, profile) {
           <div class="report-meta-row">
             ${amount !== 'Not specified' ? `<span class="report-meta-tag funding">${escHtml(amount)}</span>` : ''}
             ${s.deadline ? `<span class="report-meta-tag deadline">⏰ ${escHtml(deadline)}</span>` : ''}
-            ${(s.degree_levels || []).length ? `<span class="report-meta-tag level">${(s.degree_levels).map(d => DEGREE_LABELS[d] || d).join(' · ')}</span>` : ''}
+            ${(s.degree_levels || []).length ? `<span class="report-meta-tag level">${s.degree_levels.map(d => DEGREE_LABELS[d] || d).join(' · ')}</span>` : ''}
           </div>
           <div class="report-reason">${escHtml(m.reason)}</div>
           ${highlights ? `<ul class="report-highlights">${highlights}</ul>` : ''}
@@ -580,26 +588,26 @@ function renderReport(result, profile) {
       </div>`;
   }).join('');
 
-  reportContent.innerHTML = `
-    <div class="report-header">
+  matchInfoPanel.innerHTML = `
+    <div class="report-panel-header">
       <div>
-        <div class="report-title">✨ Your Top ${matches.length} Scholarship Matches</div>
-        <div class="report-subtitle">Personalised for ${escHtml(profile.name)} · ${escHtml(profile.nationality)} · ${escHtml(profile.field)}</div>
+        <div class="report-title">✨ Your Top ${matches.length} Matches</div>
+        <div class="report-subtitle">${escHtml(profile.name)} · ${escHtml(profile.nationality)} · ${escHtml(profile.field)}</div>
       </div>
-      <button class="modal-close" onclick="closeReport()">✕</button>
+      <button class="report-new-search-btn" onclick="resetMatchPanel()">↩ New Search</button>
     </div>
     ${result.summary ? `<div class="report-summary">${escHtml(result.summary)}</div>` : ''}
-    <div class="report-meta-info">${result.total_candidates || 0} scholarships analysed · ${matches.length} selected</div>
+    <div class="report-meta-info">${result.total_candidates || 0} analysed · ${matches.length} selected</div>
     <div class="report-cards">${cards}</div>
   `;
+  matchInfoPanel.scrollTop = 0;
 }
 
-function closeReport() {
-  reportOverlay.classList.remove('open');
+function resetMatchPanel() {
+  matchInfoPanel.innerHTML = howItWorksHTML;
 }
 
-reportOverlay.addEventListener('click', e => { if (e.target === reportOverlay) closeReport(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeReport(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 // ---- Start ----
 init();

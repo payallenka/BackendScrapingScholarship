@@ -101,8 +101,8 @@
     <!-- Form panel -->
     <div class="match-form-panel">
       <div class="match-form-header">
-        <h2>Find Your Perfect Scholarships</h2>
-        <p>Tell us about yourself and our AI will shortlist the top 10 scholarships from our database that are the best fit for you.</p>
+        <h2>🌍 Find Scholarships for African Students</h2>
+        <p>Tell us about yourself and our AI will shortlist the top 10 scholarships best suited for African students like you.</p>
       </div>
 
       <form id="matchForm" class="match-form" autocomplete="off">
@@ -113,8 +113,38 @@
             <input type="text" id="f-name" class="form-input" placeholder="e.g. Amara Diallo" required />
           </div>
           <div class="form-group">
-            <label class="form-label">Nationality / Country <span class="req">*</span></label>
-            <input type="text" id="f-nationality" class="form-input" placeholder="e.g. Nigerian, Kenyan, Indian…" required />
+            <label class="form-label">Country of Origin <span class="req">*</span></label>
+            <select id="f-nationality" class="form-input" required>
+              <option value="">— select country —</option>
+              <optgroup label="West Africa">
+                <option>Nigerian</option><option>Ghanaian</option><option>Senegalese</option>
+                <option>Ivorian</option><option>Malian</option><option>Burkinabé</option>
+                <option>Guinean</option><option>Beninese</option><option>Togolese</option>
+                <option>Sierra Leonean</option><option>Liberian</option><option>Gambian</option>
+                <option>Cape Verdean</option><option>Mauritanian</option><option>Niger</option>
+              </optgroup>
+              <optgroup label="East Africa">
+                <option>Kenyan</option><option>Ethiopian</option><option>Tanzanian</option>
+                <option>Ugandan</option><option>Rwandan</option><option>Burundian</option>
+                <option>Somali</option><option>Eritrean</option><option>Djiboutian</option>
+                <option>South Sudanese</option><option>Sudanese</option>
+              </optgroup>
+              <optgroup label="Southern Africa">
+                <option>South African</option><option>Zimbabwean</option><option>Zambian</option>
+                <option>Malawian</option><option>Mozambican</option><option>Botswanan</option>
+                <option>Namibian</option><option>Lesothan</option><option>Swazi</option>
+                <option>Angolan</option><option>Malagasy</option>
+              </optgroup>
+              <optgroup label="North Africa">
+                <option>Egyptian</option><option>Moroccan</option><option>Algerian</option>
+                <option>Tunisian</option><option>Libyan</option>
+              </optgroup>
+              <optgroup label="Central Africa">
+                <option>Congolese (DRC)</option><option>Congolese (Republic)</option>
+                <option>Cameroonian</option><option>Central African</option>
+                <option>Chadian</option><option>Gabonese</option><option>Equatorial Guinean</option>
+              </optgroup>
+            </select>
           </div>
         </div>
 
@@ -144,23 +174,35 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Field of Study / Subject Area <span class="req">*</span></label>
-          <input type="text" id="f-field" class="form-input" placeholder="e.g. Computer Science, Public Health, Environmental Engineering, Law…" required />
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Field of Study <span class="req">*</span></label>
+            <input type="text" id="f-field" class="form-input" placeholder="e.g. Public Health, Engineering, Law, Agriculture…" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Preferred Study Destination <span class="form-hint">optional</span></label>
+            <select id="f-destination" class="form-input">
+              <option value="">— any destination —</option>
+              <option>United States</option>
+              <option>United Kingdom</option>
+              <option>Europe (any)</option>
+              <option>Australia</option>
+            </select>
+          </div>
         </div>
 
         <div class="form-group">
           <label class="form-label">Academic Background <span class="form-hint">optional</span></label>
-          <input type="text" id="f-background" class="form-input" placeholder="e.g. 3.8 GPA, published research, first-generation student, Dean's list…" />
+          <input type="text" id="f-background" class="form-input" placeholder="e.g. 3.8 GPA, WAEC distinctions, first-generation student, community leadership…" />
         </div>
 
         <div class="form-group">
           <label class="form-label">Any Other Preferences <span class="form-hint">optional</span></label>
-          <textarea id="f-extra" class="form-input form-textarea" rows="2" placeholder="e.g. Prefer fully funded, open to studying in Europe, interested in gender equity programs…"></textarea>
+          <textarea id="f-extra" class="form-input form-textarea" rows="2" placeholder="e.g. Prefer fully funded, need to include living stipend, interested in women-in-STEM programs, need visa support…"></textarea>
         </div>
 
         <button type="submit" id="matchBtn" class="btn btn-match">
-          <span id="matchBtnText">✨ Find My Top 10 Scholarships</span>
+          <span id="matchBtnText">🌍 Find My Top 10 Scholarships</span>
           <span id="matchBtnSpinner" class="btn-spinner" style="display:none"></span>
         </button>
 
@@ -212,12 +254,6 @@
   </div>
 </div>
 
-<!-- ===== Match report modal ===== -->
-<div id="reportOverlay" class="modal-overlay">
-  <div class="modal modal-report">
-    <div id="reportContent"></div>
-  </div>
-</div>
 
 <script src="/static/app.js"></script>
 </body>
