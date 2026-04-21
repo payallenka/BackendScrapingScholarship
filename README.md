@@ -31,7 +31,6 @@ A full-stack scholarship aggregator built for **African students**. Scrapes 22 g
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          SCRAPING LAYER                              │
 │  22 site-specific scrapers (WordPress API / HTML / Playwright)       │
-│  + ScholarshipOwl JSON:API                                           │
 └────────────────────────────┬────────────────────────────────────────┘
                              │  List[NormalizedScholarship]
                              ▼
@@ -156,7 +155,6 @@ Frontend renders results in right panel (no popup)
 | WordPress REST API | scholars4dev, opportunitiesforafricans, opportunitydesk, youthop, scholarshipregion, opportunitiescorners, globalsouthopportunities | `GET /wp-json/wp/v2/posts?per_page=20&page=N` — structured JSON, no HTML parsing needed |
 | HTML scraping | iefa, internationalscholarships, iie, eu_education, stipendiumhungaricum, internationalstudent | `BeautifulSoup` selectors on rendered HTML |
 | Playwright | afterschoolafrica | Headless Chromium — waits for JS to render before extracting |
-| JSON:API | ScholarshipOwl | Business API with full structured data per scholarship |
 
 **Parallelism:** `run_all.py` uses `ThreadPoolExecutor(max_workers=4)` — scrapers run concurrently, each saving results as they complete.
 
@@ -512,7 +510,6 @@ venv/bin/pip install -r scrapers/requirements.txt
 cp .env.example .env
 # Add to .env:
 #   GROQ_API_KEY=your_groq_key      ← required for Match Me
-#   OWL_API_KEY=your_owl_key        ← optional
 ```
 
 Get a free Groq API key at [console.groq.com](https://console.groq.com).
@@ -576,11 +573,10 @@ PYTHONPATH=. venv/bin/python3 -m scrapers.run_all --sites scholars4dev opportuni
 | GoAbroad | Selector mismatch — structure changed |
 | British Council India | Connection timeout |
 
-### API (optional)
+### API (Deprecated)
 
-| Source | Notes |
-|--------|-------|
-| ScholarshipOwl | Business API — requires `OWL_API_KEY` in `.env` |
+> [!NOTE]
+> We are not using the ScholarshipOwl JSON:API as of now, so related integrations have been removed.
 
 ---
 
@@ -588,7 +584,7 @@ PYTHONPATH=. venv/bin/python3 -m scrapers.run_all --sites scholars4dev opportuni
 
 ```
 scraping/
-├── .env.example                    # GROQ_API_KEY, OWL_API_KEY
+├── .env.example                    # GROQ_API_KEY
 ├── backend/
 │   ├── main.py                     # FastAPI app — all routes + static serving
 │   ├── database.py                 # SQLite connection + row_to_dict (JSON array deserialise)
@@ -598,7 +594,6 @@ scraping/
 ├── scrapers/
 │   ├── base.py                     # BaseScraper — session, retry, rate-limit, get_soup/get_json
 │   ├── normalizer.py               # make_scholarship() + all normalisation helpers
-│   ├── owl_api.py                  # ScholarshipOwl JSON:API client
 │   ├── run_all.py                  # CLI runner — ThreadPoolExecutor + SQLite upsert
 │   ├── requirements.txt            # requests, beautifulsoup4, lxml, playwright, python-dateutil
 │   └── sites/

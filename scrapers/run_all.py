@@ -4,7 +4,6 @@ Run all scrapers, normalize results, and persist to SQLite.
 Usage:
     python -m scrapers.run_all                  # run all scrapers
     python -m scrapers.run_all --sites scholars4dev opportunitiesforafricans
-    python -m scrapers.run_all --owl            # include ScholarshipOwl API
     python -m scrapers.run_all --max-pages 5    # limit pages per scraper
 """
 from __future__ import annotations
@@ -98,7 +97,6 @@ def run_scraper(scraper_cls, max_pages: int):
 def main():
     parser = argparse.ArgumentParser(description="Run all scholarship scrapers")
     parser.add_argument("--sites", nargs="*", help="Specific scraper names to run")
-    parser.add_argument("--owl", action="store_true", help="Include ScholarshipOwl API")
     parser.add_argument("--max-pages", type=int, default=10)
     parser.add_argument("--workers", type=int, default=4, help="Parallel workers")
     args = parser.parse_args()
@@ -109,9 +107,6 @@ def main():
     if args.sites:
         scrapers_to_run = [s for s in ALL_SCRAPERS if s(max_pages=1).name in args.sites]
 
-    if args.owl:
-        from scrapers.owl_api import ScholarshipOwlAPI
-        scrapers_to_run = list(scrapers_to_run) + [ScholarshipOwlAPI]
 
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
