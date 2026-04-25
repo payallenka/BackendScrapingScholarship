@@ -1,0 +1,31 @@
+name: Daily Scrape
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # runs every day at 2:00 AM UTC
+  workflow_dispatch:        # lets you trigger it manually from GitHub too
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scrape
+        run: |
+          curl -X POST "${{ secrets.RENDER_URL }}/api/scrape" \
+            --fail \
+            --silent \
+            --show-error
+
+      - name: Wait for scrape to finish
+        run: |
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s "${{ secrets.RENDER_URL }}/api/scrape/status" | python3 -c "import sys,json; print(json.load(sys.stdin)['running'])")
+            echo "Attempt $i: running=$STATUS"
+            if [ "$STATUS" = "False" ]; then
+              echo "Scrape complete."
+              exit 0
+            fi
+            sleep 60
+          done
+          echo "Timed out after 60 minutes."
+          exit 1
