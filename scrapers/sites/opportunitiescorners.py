@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "Opportunities Corners"
 BASE_URL = "https://opportunitiescorners.com"
@@ -43,7 +43,7 @@ class OpportunitiesCornersScraper(BaseScraper):
         content = re.sub(r"<[^>]+>", " ", post.get("content", {}).get("rendered", ""))
         content = re.sub(r"\s+", " ", content).strip()
         search_text = excerpt + " " + content
-        deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<]{3,80})", search_text)
+        deadline_raw = find_deadline_in_text(search_text)
         amount_m = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|full scholarship)", search_text, re.I)
         return make_scholarship(
             title=title,
@@ -51,7 +51,7 @@ class OpportunitiesCornersScraper(BaseScraper):
             source_site=SITE_NAME,
             description=excerpt[:800],
             degree_levels_raw=title + " " + excerpt,
-            deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+            deadline_raw=deadline_raw,
             amount=amount_m.group(0) if amount_m else None,
         )
 
@@ -73,13 +73,14 @@ class OpportunitiesCornersScraper(BaseScraper):
                 title = link.get_text(strip=True)
                 href = link.get("href", "")
                 text = art.get_text(" ", strip=True)
-                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|]+)", text)
+                full_url = href if href.startswith("http") else BASE_URL + href
+                deadline_raw = find_deadline_in_text(text) or self._fetch_deadline(full_url)
                 results.append(make_scholarship(
                     title=title,
-                    source_url=href if href.startswith("http") else BASE_URL + href,
+                    source_url=full_url,
                     source_site=SITE_NAME,
                     degree_levels_raw=title,
-                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                    deadline_raw=deadline_raw,
                 ))
                 found += 1
             if found == 0:

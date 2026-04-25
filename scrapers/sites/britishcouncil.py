@@ -1,13 +1,13 @@
-"""Scraper for British Council scholarship listings (britishcouncil.in)."""
+"""Scraper for British Council scholarship listings (britishcouncil.org)."""
 from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "British Council"
-BASE_URL = "https://www.britishcouncil.in"
-LIST_URL = f"{BASE_URL}/study-uk/scholarships/scholarships-funded-other-organisations"
+BASE_URL = "https://www.britishcouncil.org"
+LIST_URL = f"{BASE_URL}/study-work-abroad/scholarships-grants-bursaries"
 
 
 class BritishCouncilScraper(BaseScraper):
@@ -46,7 +46,9 @@ class BritishCouncilScraper(BaseScraper):
                 if not title or len(title) < 5:
                     continue
                 text = item.get_text(" ", strip=True)
-                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<.]+)", text)
+                deadline_raw = find_deadline_in_text(text)
+                if not deadline_raw:
+                    deadline_raw = self._fetch_deadline(href)
                 amount_m = re.search(r"(\$[\d,]+|€[\d,]+|£[\d,]+|fully funded|full scholarship)", text, re.I)
                 degree_m = re.search(r"(undergraduate|bachelor|master|graduate|ph\.?d|doctoral)", text, re.I)
                 results.append(make_scholarship(
@@ -54,7 +56,7 @@ class BritishCouncilScraper(BaseScraper):
                     source_url=href,
                     source_site=SITE_NAME,
                     degree_levels_raw=degree_m.group(0) if degree_m else "any",
-                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                    deadline_raw=deadline_raw,
                     amount=amount_m.group(0) if amount_m else None,
                     host_countries=["United Kingdom"],
                     tags=["UK", "British Council"],

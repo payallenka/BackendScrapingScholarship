@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("run_all")
 
-DB_PATH = Path(__file__).parent.parent / "backend" / "scholarships.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent.parent / "backend" / "scholarships.db")))
 
 
 def init_db(conn: sqlite3.Connection):

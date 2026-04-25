@@ -6,10 +6,49 @@ from __future__ import annotations
 import html as html_lib
 import re
 import uuid
+import warnings
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, field_validator
 from dateutil import parser as dateparser
+from dateutil.parser._parser import UnknownTimezoneWarning
+
+
+# ---------------------------------------------------------------------------
+# Deadline label detection — used by scrapers and extract_deadline_from_soup
+# ---------------------------------------------------------------------------
+
+# Matches any common deadline label variant followed by the date value.
+DEADLINE_LABEL_RE = re.compile(
+    r"(?:"
+    r"(?:application(?:\s+submission)?\s+)?deadline"
+    r"|closing\s+dates?"
+    r"|due\s+dates?"
+    r"|apply\s+(?:by|before|on\s+or\s+before)"
+    r"|last\s+(?:date|day)(?:\s+to\s+(?:apply|submit))?"
+    r"|applications?\s+(?:close|due|are\s+due|accepted\s+until|close\s+on)"
+    r"|submission\s+(?:date|deadline)"
+    r")"
+    r"[:\s]+([^\n|<]{3,80})",
+    re.I,
+)
+
+# Simpler keyword check — used to identify whether an HTML element IS a label.
+_DEADLINE_KEYWORD_RE = re.compile(
+    r"(?:application(?:\s+submission)?\s+)?(?:deadline|closing\s+dates?|due\s+dates?)"
+    r"|apply\s+(?:by|before)"
+    r"|last\s+(?:date|day)"
+    r"|submission\s+(?:date|deadline)",
+    re.I,
+)
+
+
+def find_deadline_in_text(text: str) -> Optional[str]:
+    """Return the raw date string captured after a deadline label, or None."""
+    if not text:
+        return None
+    m = DEADLINE_LABEL_RE.search(text)
+    return m.group(1).strip() if m else None
 
 
 class NormalizedScholarship(BaseModel):
@@ -63,6 +102,62 @@ _ROUNDUP_PATTERN = re.compile(
     r"^\d+\+?\s|^top\s+\d|^best\s+\d|^list\s+of|scholarships?\s+for\s+\d{4}|multiple scholarships",
     re.I,
 )
+
+# Keywords that indicate a post is about an actual scholarship / funding opportunity
+_SCHOLARSHIP_KW_RE = re.compile(
+    r"\b(?:scholarship|fellowship|grant|bursary|award|prize|fund(?:ing|ed)?|"
+    r"programme|internship|exchange|residency|competition|"
+    r"call\s+for|fully\s+funded|stipend|application|opportunity|opportunities|"
+    r"tuition|endowment|assistantship|vacancy|position)\b",
+    re.I,
+)
+
+# Patterns that strongly indicate a non-scholarship post
+_JUNK_POST_RE = re.compile(
+    r"\b(?:person\s+of\s+the\s+(?:month|year)|volunteer\s+of\s+the\s+(?:month|year)|"
+    r"employee\s+of\s+the|in\s+memoriam|obituary|"
+    r"(?:is|was|named)\s+(?:\w+\s+)?(?:young\s+person|leader\s+of))\b"
+    # WordPress default post
+    r"|^hello\s+world\b"
+    # Social media follow links (e.g. "Erasmus+ on X", "Erasmus+ on Facebook")
+    r"|\bon\s+(?:x|facebook|twitter|instagram|linkedin|youtube|tiktok)\s*$"
+    # Tip/advice articles, not scholarships
+    r"|\b\d+\s+\w+\s+(?:scholarship|funding|application)\s+tips?\b"
+    r"|\bscholarship\s+(?:application\s+)?tips?\b"
+    # Generic navigation or category pages
+    r"|^find\s+scholarships?\s+to\b"
+    r"|^scholarships?\s+and\s+funding\s*$"
+    r"|^scholarships?\s+(?:and\s+)?(?:grants?)?\s*$"
+    r"|^funding\s+(?:opportunities?)?\s*$"
+    # Numbered tip/list articles (Scholarship Tip #6, Top 10+ Scholarships...)
+    r"|\bscholarships?\s+tip\s*#?\d*\b"
+    r"|^top\s+\d+\+?\s+"
+    r"|^list\s+of\s+"
+    # Story / profile posts about a person who won a scholarship
+    r"|\d+-year-old\b.{0,40}\b(?:wins?|won|bags?|earn|graduate)\b"
+    r"|\b(?:wins?|won|bags?|earned|secured)\b.{0,50}\b(?:scholarship|fellowship)\b(?!.*program)"
+    r"|\b(?:how|why)\s+\w[\w\s]{2,30}\b(?:won|got|earned|secured|bags?)\b"
+    # Correction / update notices
+    r"|^correction\s*:"
+    # Generic guide / listicle pages
+    r"|^top\s+countries\s+offer"
+    r"|post.?study\s+work\s+visas?\b"
+    # Catch-all ad/placeholder slugs (e.g. "GSO Plug 2")
+    r"|^\w{2,5}\s+plug\s*\d*$",
+    re.I,
+)
+
+
+def is_valid_scholarship_title(title: str, description: str = "") -> bool:
+    """Return True when title+description look like an actual scholarship post.
+
+    Rejects person-profile posts (Person of the Month, etc.) and posts
+    that contain no scholarship-related keywords at all.
+    """
+    if _JUNK_POST_RE.search(title):
+        return False
+    combined = title + " " + description[:400]
+    return bool(_SCHOLARSHIP_KW_RE.search(combined))
 
 
 def normalize_degree_levels(raw: str | List[str], title: str = "") -> List[str]:
@@ -197,12 +292,12 @@ def parse_deadline(text: str) -> Optional[str]:
         return None
     text = html_lib.unescape(text.strip())
 
-    text = re.split(r"(?i)\s*Applications?\b.*$", text)[0].strip()
+    text = re.sub(r"(?i)\s+Applications?\b.*$", "", text).strip()
     text = re.sub(r"(?i)\(midnight\)", "", text)
 
     # Strip leading label prefixes
     text = re.sub(
-        r"(?i)^(?:application\s+)?(?:deadline|closing\s+date|due\s+date|apply\s+by)[:\s]+",
+        r"(?i)^(?:application(?:\s+submission)?\s+)?(?:deadline|closing\s+dates?|due\s+dates?|apply\s+(?:by|before))[:\s]+",
         "", text,
     ).strip()
 
@@ -232,7 +327,9 @@ def parse_deadline(text: str) -> Optional[str]:
     text = text[:60]
 
     try:
-        dt = dateparser.parse(text, dayfirst=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UnknownTimezoneWarning)
+            dt = dateparser.parse(text, dayfirst=True)
         if dt and dt.year >= 2020:
             return dt.strftime("%Y-%m-%d")
     except Exception:
@@ -254,6 +351,59 @@ def parse_deadline(text: str) -> Optional[str]:
                     return dt.strftime("%Y-%m-%d")
             except Exception:
                 pass
+    return None
+
+
+def extract_deadline_from_soup(soup) -> Optional[str]:
+    """Parse a BeautifulSoup object and return an ISO deadline date, or None.
+
+    Tries structured HTML elements first (dt/dd, table cells, bold labels),
+    then falls back to a full-page text search with DEADLINE_LABEL_RE.
+    """
+    # 1. Definition lists: <dt>Deadline</dt><dd>March 15</dd>
+    for dt in soup.find_all("dt"):
+        if _DEADLINE_KEYWORD_RE.search(dt.get_text()):
+            dd = dt.find_next_sibling("dd")
+            if dd:
+                result = parse_deadline(dd.get_text(strip=True))
+                if result:
+                    return result
+
+    # 2. Table label/value pairs: <th>Deadline</th><td>March 15</td>
+    for label_cell in soup.find_all(["th", "td"]):
+        cell_text = label_cell.get_text(strip=True).rstrip(": ")
+        if len(cell_text) < 50 and _DEADLINE_KEYWORD_RE.fullmatch(cell_text):
+            val_cell = label_cell.find_next_sibling(["td", "th"])
+            if val_cell:
+                result = parse_deadline(val_cell.get_text(strip=True))
+                if result:
+                    return result
+
+    # 3. Elements whose class name signals a deadline
+    for el in soup.find_all(class_=re.compile(r"deadline|due.?date|closing.?date", re.I)):
+        text = el.get_text(" ", strip=True)
+        raw = find_deadline_in_text(text) or text
+        result = parse_deadline(raw[:80])
+        if result:
+            return result
+
+    # 4. Bold/strong labels followed by date text in the same parent element
+    for bold in soup.find_all(["strong", "b"]):
+        if not _DEADLINE_KEYWORD_RE.search(bold.get_text()):
+            continue
+        parent = bold.parent
+        if parent:
+            raw = find_deadline_in_text(parent.get_text(" ", strip=True))
+            if raw:
+                result = parse_deadline(raw)
+                if result:
+                    return result
+
+    # 5. Full-page text fallback
+    raw = find_deadline_in_text(soup.get_text(" ", strip=True))
+    if raw:
+        return parse_deadline(raw)
+
     return None
 
 
@@ -347,7 +497,7 @@ def make_scholarship(
     if deadline_raw:
         cleaned = html_lib.unescape(deadline_raw).strip()
         cleaned = re.sub(r"(?i)^(?:is|are|was|will\s+be|falls?\s+on|set\s+for)\s+", "", cleaned)
-        cleaned = re.split(r"(?i)\s*Applications?\b.*$", cleaned)[0].strip()
+        cleaned = re.sub(r"(?i)\s+Applications?\b.*$", "", cleaned).strip()
         cleaned = re.split(r"\.\s+[A-Z]|Read more|&raquo|»|\s{2,}", cleaned)[0].strip()
         cleaned = re.sub(r"(?i)\(midnight\)", "", cleaned).strip()
         deadline_raw = cleaned or deadline_raw
@@ -368,7 +518,7 @@ def make_scholarship(
         eligible_nationalities = infer_eligibility(description, tags)
 
     return NormalizedScholarship(
-        id=str(uuid.uuid4()),
+        id=str(uuid.uuid5(uuid.NAMESPACE_URL, source_url)),
         title=title,
         organization=organization,
         description=description,

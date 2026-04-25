@@ -1,0 +1,12 @@
+venv/
+elite/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.git/
+.env
+*.log
+*.db
+*.db-journal
+scraper_cron.log

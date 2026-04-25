@@ -36,11 +36,22 @@ init_db(_conn)
 _conn.close()
 del _conn
 
+
+# In-memory cache for match results (profile_hash -> result, timestamp)
+import hashlib
+import threading
+from time import time
+
+_match_cache = {}
+_cache_lock = threading.Lock()
+_CACHE_TTL = 60 * 30  # 30 minutes
+
 app = FastAPI(title="Scholarship Aggregator API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -188,12 +199,33 @@ def get_sites():
     return [{"name": r["source_site"], "count": r["cnt"]} for r in rows]
 
 
+
+# Helper: hash profile dict for cache key
+def _profile_hash(profile: dict) -> str:
+    # Sort keys for deterministic hash
+    profile_str = json.dumps(profile, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(profile_str.encode()).hexdigest()
+
 @app.post("/api/match")
 async def match_endpoint(profile: dict):
     from backend.matcher import match_scholarships, UserProfile
+    cache_key = _profile_hash(profile)
+    now = time()
+    # Try cache
+    with _cache_lock:
+        cached = _match_cache.get(cache_key)
+        if cached:
+            result, ts = cached
+            if now - ts < _CACHE_TTL:
+                return result
+            else:
+                del _match_cache[cache_key]
+    # Not cached or expired
     try:
         p = UserProfile(**profile)
         result = await match_scholarships(p)
+        with _cache_lock:
+            _match_cache[cache_key] = (result, now)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

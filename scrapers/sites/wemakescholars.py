@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "WeMakeScholars"
 BASE_URL = "https://www.wemakescholars.com"
@@ -45,7 +45,9 @@ class WeMakeScholarsScraper(BaseScraper):
                 if not href.startswith("http"):
                     href = BASE_URL + href
                 text = item.get_text(" ", strip=True)
-                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|]+)", text)
+                deadline_raw = find_deadline_in_text(text)
+                if not deadline_raw:
+                    deadline_raw = self._fetch_deadline(href)
                 amount_m = re.search(r"(\$[\d,]+|€[\d,]+|₹[\d,]+|fully funded|Award[:\s]+[^\n|]+)", text, re.I)
                 degree_m = re.search(r"(undergraduate|bachelor|master|graduate|ph\.?d|doctoral|post.?grad)", text, re.I)
                 org_m = item.find(class_=re.compile(r"org|provider|sponsor|university", re.I))
@@ -55,7 +57,7 @@ class WeMakeScholarsScraper(BaseScraper):
                     source_site=SITE_NAME,
                     organization=org_m.get_text(strip=True) if org_m else None,
                     degree_levels_raw=degree_m.group(0) if degree_m else "any",
-                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                    deadline_raw=deadline_raw,
                     amount=amount_m.group(0) if amount_m else None,
                 ))
                 found += 1

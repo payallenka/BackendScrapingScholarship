@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "After School Africa"
 BASE_URL = "https://www.afterschoolafrica.com"
@@ -46,8 +46,7 @@ class AfterSchoolAfricaScraper(BaseScraper):
                         title = title_el.inner_text().strip()
                         href = title_el.get_attribute("href") or ""
                         text = card.inner_text()
-                        deadline_match = re.search(r"[Dd]eadline[:\s]+([^\n]+)", text)
-                        deadline_raw = deadline_match.group(1).strip() if deadline_match else None
+                        deadline_raw = find_deadline_in_text(text)
                         amount_match = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|full scholarship)", text, re.I)
                         amount = amount_match.group(0) if amount_match else None
                         results.append(make_scholarship(
@@ -91,13 +90,15 @@ class AfterSchoolAfricaScraper(BaseScraper):
                 if not title or not href:
                     continue
                 text = art.get_text(" ", strip=True)
-                deadline_match = re.search(r"[Dd]eadline[:\s]+([^\n|]+)", text)
-                deadline_raw = deadline_match.group(1).strip() if deadline_match else None
+                deadline_raw = find_deadline_in_text(text)
+                full_url = href if href.startswith("http") else BASE_URL + href
+                if not deadline_raw:
+                    deadline_raw = self._fetch_deadline(full_url)
                 amount_match = re.search(r"(\$[\d,]+|€[\d,]+|fully funded)", text, re.I)
                 amount = amount_match.group(0) if amount_match else None
                 results.append(make_scholarship(
                     title=title,
-                    source_url=href if href.startswith("http") else BASE_URL + href,
+                    source_url=full_url,
                     source_site=SITE_NAME,
                     degree_levels_raw=title,
                     deadline_raw=deadline_raw,

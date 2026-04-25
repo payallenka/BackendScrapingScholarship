@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "InternationalStudent.com"
 BASE_URL = "https://www.internationalstudent.com"
@@ -42,7 +42,9 @@ class InternationalStudentScraper(BaseScraper):
                 if not title or len(title) < 5:
                     continue
                 text = item.get_text(" ", strip=True)
-                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<.]+)", text)
+                deadline_raw = find_deadline_in_text(text)
+                if not deadline_raw:
+                    deadline_raw = self._fetch_deadline(href)
                 amount_m = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|Amount[:\s]+[^\n|]+)", text, re.I)
                 degree_m = re.search(r"(undergraduate|bachelor|master|graduate|ph\.?d|doctoral)", text, re.I)
                 results.append(make_scholarship(
@@ -50,7 +52,7 @@ class InternationalStudentScraper(BaseScraper):
                     source_url=href,
                     source_site=SITE_NAME,
                     degree_levels_raw=degree_m.group(0) if degree_m else "any",
-                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                    deadline_raw=deadline_raw,
                     amount=amount_m.group(0) if amount_m else None,
                 ))
                 found += 1

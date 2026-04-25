@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "GoAbroad"
 BASE_URL = "https://www.goabroad.com"
@@ -45,7 +45,9 @@ class GoAbroadScraper(BaseScraper):
                 if not title or len(title) < 5:
                     continue
                 text = item.get_text(" ", strip=True)
-                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|]+)", text)
+                deadline_raw = find_deadline_in_text(text)
+                if not deadline_raw:
+                    deadline_raw = self._fetch_deadline(href)
                 amount_m = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|stipend)", text, re.I)
                 degree_m = re.search(r"(undergraduate|bachelor|master|graduate|ph\.?d)", text, re.I)
                 org_m = item.find(class_=re.compile(r"org|sponsor|provider|university|school", re.I))
@@ -55,7 +57,7 @@ class GoAbroadScraper(BaseScraper):
                     source_site=SITE_NAME,
                     organization=org_m.get_text(strip=True) if org_m else None,
                     degree_levels_raw=degree_m.group(0) if degree_m else "any",
-                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                    deadline_raw=deadline_raw,
                     amount=amount_m.group(0) if amount_m else None,
                     tags=["study abroad"],
                 ))

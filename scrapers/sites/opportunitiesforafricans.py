@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "Opportunities for Africans"
 CATEGORIES = {
@@ -27,7 +27,7 @@ class OpportunitiesForAfricansScraper(BaseScraper):
             while page <= self.max_pages:
                 data = self.get_json(
                     WP_API,
-                    params={"per_page": 50, "page": page, "_fields": "id,title,link,excerpt,date"},
+                    params={"per_page": 50, "page": page, "_fields": "id,title,link,excerpt,content,date"},
                 )
                 if not data or not isinstance(data, list):
                     break
@@ -46,9 +46,9 @@ class OpportunitiesForAfricansScraper(BaseScraper):
         title = re.sub(r"<[^>]+>", "", post.get("title", {}).get("rendered", "")).strip()
         url = post.get("link", "")
         excerpt = re.sub(r"<[^>]+>", " ", post.get("excerpt", {}).get("rendered", "")).strip()
+        content_text = re.sub(r"<[^>]+>", " ", post.get("content", {}).get("rendered", "")).strip()
 
-        deadline_match = re.search(r"(?:Application\s+)?[Dd]eadline[:\s]+([^\n<|.]+)", excerpt)
-        deadline_raw = deadline_match.group(1).strip() if deadline_match else None
+        deadline_raw = find_deadline_in_text(excerpt) or find_deadline_in_text(content_text)
 
         amount_match = re.search(r"(\$[\d,]+|€[\d,]+|£[\d,]+|fully funded|full scholarship)", excerpt, re.I)
         amount = amount_match.group(0) if amount_match else None

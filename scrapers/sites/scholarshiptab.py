@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "ScholarshipTab"
 BASE_URL = "https://www.scholarshiptab.com"
@@ -19,7 +19,7 @@ class ScholarshipTabScraper(BaseScraper):
         results = []
         page = 1
         while page <= self.max_pages:
-            data = self.get_json(WP_API, params={"per_page": 50, "page": page, "_fields": "id,title,link,excerpt,date"})
+            data = self.get_json(WP_API, params={"per_page": 50, "page": page, "_fields": "id,title,link,excerpt,content,date"})
             if not data or not isinstance(data, list):
                 return self._scrape_html()
             for post in data:
@@ -33,12 +33,13 @@ class ScholarshipTabScraper(BaseScraper):
         title = re.sub(r"<[^>]+>", "", post.get("title", {}).get("rendered", "")).strip()
         url = post.get("link", "")
         excerpt = re.sub(r"<[^>]+>", " ", post.get("excerpt", {}).get("rendered", "")).strip()
-        deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<.]+)", excerpt)
+        content_text = re.sub(r"<[^>]+>", " ", post.get("content", {}).get("rendered", "")).strip()
+        deadline_raw = find_deadline_in_text(excerpt) or find_deadline_in_text(content_text)
         amount_m = re.search(r"(\$[\d,]+|€[\d,]+|fully funded|full scholarship)", excerpt, re.I)
         return make_scholarship(
             title=title, source_url=url, source_site=SITE_NAME,
             description=excerpt[:800], degree_levels_raw=title + " " + excerpt,
-            deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+            deadline_raw=deadline_raw,
             amount=amount_m.group(0) if amount_m else None,
         )
 
@@ -60,12 +61,14 @@ class ScholarshipTabScraper(BaseScraper):
                 title = link.get_text(strip=True)
                 href = link.get("href", "")
                 text = art.get_text(" ", strip=True)
-                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|]+)", text)
+                deadline_raw = find_deadline_in_text(text)
+                if not deadline_raw:
+                    deadline_raw = self._fetch_deadline(href if href.startswith("http") else BASE_URL + href)
                 results.append(make_scholarship(
                     title=title,
                     source_url=href if href.startswith("http") else BASE_URL + href,
                     source_site=SITE_NAME, degree_levels_raw=title,
-                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                    deadline_raw=deadline_raw,
                 ))
                 found += 1
             if found == 0:

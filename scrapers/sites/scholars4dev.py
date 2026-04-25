@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 WP_API = "https://www.scholars4dev.com/wp-json/wp/v2/posts"
 SITE_NAME = "Scholars4Dev"
@@ -33,11 +33,11 @@ class Scholars4DevScraper(BaseScraper):
         title = re.sub(r"<[^>]+>", "", title)
         url = post.get("link", "")
         excerpt_html = post.get("excerpt", {}).get("rendered", "")
+        content_html = post.get("content", {}).get("rendered", "")
         description = re.sub(r"<[^>]+>", " ", excerpt_html).strip()
+        content_text = re.sub(r"<[^>]+>", " ", content_html).strip()
 
-        # Extract deadline from description
-        deadline_match = re.search(r"deadline[:\s]+([^\n<|]+)", description, re.I)
-        deadline_raw = deadline_match.group(1).strip() if deadline_match else None
+        deadline_raw = find_deadline_in_text(description) or find_deadline_in_text(content_text)
 
         # Infer degree level from title/description
         degree_raw = title + " " + description

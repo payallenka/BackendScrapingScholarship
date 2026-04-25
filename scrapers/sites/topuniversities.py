@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "TopUniversities"
 BASE_URL = "https://www.topuniversities.com"
@@ -69,11 +69,13 @@ class TopUniversitiesScraper(BaseScraper):
                 if not href.startswith("http"):
                     href = BASE_URL + href
                 text = item.get_text(" ", strip=True)
-                deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|]+)", text)
+                deadline_raw = find_deadline_in_text(text)
+                if not deadline_raw:
+                    deadline_raw = self._fetch_deadline(href)
                 results.append(make_scholarship(
                     title=title, source_url=href, source_site=SITE_NAME,
                     degree_levels_raw=title,
-                    deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+                    deadline_raw=deadline_raw,
                 ))
                 found += 1
             if found == 0:

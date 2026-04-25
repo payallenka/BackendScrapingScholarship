@@ -1,2 +1,31 @@
+# Environment
 .env
 .env.example
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.venv/
+
+# Database (generated at runtime)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+scraper_cron.log
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

@@ -75,6 +75,22 @@ class BaseScraper(ABC):
             logger.warning(f"[{self.name}] JSON parse failed for {url}: {e}")
             return None
 
+    def _fetch_deadline(self, url: str) -> Optional[str]:
+        """Fetch a detail page and return an ISO deadline date string, or None.
+
+        Used as a fallback when the list-page card text contains no deadline.
+        """
+        from scrapers.normalizer import extract_deadline_from_soup
+        soup = self.get_soup(url)
+        return extract_deadline_from_soup(soup) if soup else None
+
+    def is_valid_scholarship(self, s: NormalizedScholarship) -> bool:
+        """Return True if the scholarship has the minimum required fields and looks like a real scholarship."""
+        from scrapers.normalizer import is_valid_scholarship_title
+        if not (s and s.title and len(s.title) > 5 and s.source_url):
+            return False
+        return is_valid_scholarship_title(s.title, s.description or "")
+
     @abstractmethod
     def scrape(self) -> List[NormalizedScholarship]:
         """Run the scraper and return normalized scholarships."""
@@ -84,8 +100,9 @@ class BaseScraper(ABC):
         logger.info(f"[{self.name}] Starting scrape ...")
         try:
             results = self.scrape()
-            logger.info(f"[{self.name}] Scraped {len(results)} scholarships.")
-            return results
+            filtered = [s for s in results if self.is_valid_scholarship(s)]
+            logger.info(f"[{self.name}] Scraped {len(filtered)} valid scholarships (from {len(results)} scraped).")
+            return filtered
         except Exception as e:
             logger.error(f"[{self.name}] Scrape failed: {e}", exc_info=True)
             return []

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship
+from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
 
 SITE_NAME = "Stipendium Hungaricum"
 BASE_URL = "https://stipendiumhungaricum.hu"
@@ -29,7 +29,7 @@ class StipendiumHungaricumScraper(BaseScraper):
         while page <= self.max_pages:
             data = self.get_json(API_URL, params={
                 "per_page": 50, "page": page,
-                "_fields": "id,title,link,excerpt,date"
+                "_fields": "id,title,link,excerpt,content,date"
             })
             if not data or not isinstance(data, list):
                 break
@@ -44,14 +44,15 @@ class StipendiumHungaricumScraper(BaseScraper):
         title = re.sub(r"<[^>]+>", "", post.get("title", {}).get("rendered", "")).strip()
         url = post.get("link", "")
         excerpt = re.sub(r"<[^>]+>", " ", post.get("excerpt", {}).get("rendered", "")).strip()
-        deadline_m = re.search(r"[Dd]eadline[:\s]+([^\n|<.]+)", excerpt)
+        content_text = re.sub(r"<[^>]+>", " ", post.get("content", {}).get("rendered", "")).strip()
+        deadline_raw = find_deadline_in_text(excerpt) or find_deadline_in_text(content_text)
         return make_scholarship(
             title=title,
             source_url=url,
             source_site=SITE_NAME,
             description=excerpt[:800],
             degree_levels_raw=title + " " + excerpt,
-            deadline_raw=deadline_m.group(1).strip() if deadline_m else None,
+            deadline_raw=deadline_raw,
             host_countries=["Hungary"],
             tags=["Hungary", "Government Scholarship"],
         )

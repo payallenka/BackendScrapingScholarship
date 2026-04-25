@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - scholarship_data:/data
+    environment:
+      - DB_PATH=/data/scholarships.db
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    restart: unless-stopped
+
+volumes:
+  scholarship_data:
