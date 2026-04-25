@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: scholarship-scraper
+    runtime: docker
+    plan: free
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PYTHONPATH
+        value: /app
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /ms-playwright
