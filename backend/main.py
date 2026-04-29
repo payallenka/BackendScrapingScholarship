@@ -117,19 +117,10 @@ def _run_jobs_scrape():
 # --- Job listing ---
 
 _EXPERIENCE_KEYWORDS = {
-    "entry":   ["junior", "entry", "graduate", "trainee", "intern"],
-    "mid":     ["mid-level", "intermediate", "associate"],
-    "senior":  ["senior", "sr.", "lead", "principal", "staff"],
-    "manager": ["manager", "director", "head", "chief"],
-}
-
-_CATEGORY_KEYWORDS = {
-    "tech":        ["software", "developer", "engineer", "data", "devops", "frontend", "backend", "cloud", "it "],
-    "healthcare":  ["nurse", "doctor", "healthcare", "medical", "clinical", "therapist", "pharmacist", "care"],
-    "finance":     ["finance", "financial", "accountant", "accounting", "analyst", "banking"],
-    "marketing":   ["marketing", "sales", "digital", "content", "brand", "seo"],
-    "education":   ["teacher", "lecturer", "professor", "tutor", "education", "trainer"],
-    "engineering": ["mechanical", "civil", "electrical", "structural", "chemical"],
+    "entry":   ["junior", "entry level", "graduate", "trainee", "intern", "assistant"],
+    "mid":     ["mid-level", "intermediate", "associate", "experienced"],
+    "senior":  ["senior", "sr.", "lead", "principal", "staff", "expert"],
+    "manager": ["manager", "director", "head of", "chief", "vp ", "vice president"],
 }
 
 
@@ -140,7 +131,7 @@ def list_jobs(
     location: Optional[str] = Query(None),
     contract_type: Optional[str] = Query(None),
     source: Optional[str] = Query(None),
-    category: Optional[str] = Query(None, description="tech|healthcare|finance|marketing|education|engineering"),
+    category: Optional[str] = Query(None, description="Free-text category searched across title, description and tags"),
     experience: Optional[str] = Query(None, description="entry|mid|senior|manager"),
     posted_hours: Optional[int] = Query(None, description="Only jobs posted in the last N hours (e.g. 24)"),
     sort: str = Query("posted_at", description="posted_at|ingested_at|salary_min|salary_max"),
@@ -171,12 +162,15 @@ def list_jobs(
         from datetime import timedelta
         cutoff = (datetime.utcnow() - timedelta(hours=posted_hours)).isoformat()
         query = query.gte("posted_at", cutoff)
-    if category and category in _CATEGORY_KEYWORDS:
-        kws = _CATEGORY_KEYWORDS[category]
-        query = query.or_(",".join(f"title.ilike.*{kw}*" for kw in kws))
+    if category:
+        # Free-text: search broadly across title, description and tags
+        term = category.replace("*", "").replace("%", "")
+        query = query.or_(f"title.ilike.*{term}*,description.ilike.*{term}*,tags.ilike.*{term}*")
     if experience and experience in _EXPERIENCE_KEYWORDS:
         kws = _EXPERIENCE_KEYWORDS[experience]
-        query = query.or_(",".join(f"title.ilike.*{kw}*" for kw in kws))
+        # Search both title and description for level keywords
+        conditions = [f"title.ilike.*{kw}*,description.ilike.*{kw}*" for kw in kws]
+        query = query.or_(",".join(conditions))
 
     query = query.order(sort_col, desc=desc, nullsfirst=False)
     query = query.range(offset, offset + limit - 1)
