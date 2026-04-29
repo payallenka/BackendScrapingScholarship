@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 
 from scrapers.normalizer import NormalizedJob
-from backend.database import get_conn, upsert_jobs, init_jobs_table
+from backend.database import upsert_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +129,6 @@ def fetch_canada_job_bank_jobs():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    conn = get_conn()
-    init_jobs_table(conn)
     jobs = fetch_canada_job_bank_jobs()
-    upsert_jobs(conn, jobs)
+    upsert_jobs(jobs)
     print(f"Ingested {len(jobs)} jobs from Canada Job Bank.")
-    conn.close()

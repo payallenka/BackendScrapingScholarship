@@ -5,7 +5,7 @@ Requires OAuth2 token management.
 import requests
 from datetime import datetime
 from scrapers.normalizer import NormalizedJob
-from backend.database import get_conn, upsert_jobs, init_jobs_table
+from backend.database import upsert_jobs
 import os
 
 API_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
@@ -59,9 +59,6 @@ def fetch_francetravail_jobs():
     return jobs
 
 if __name__ == "__main__":
-    conn = get_conn()
-    init_jobs_table(conn)
     jobs = fetch_francetravail_jobs()
-    upsert_jobs(conn, jobs)
+    upsert_jobs(jobs)
     print(f"Ingested {len(jobs)} jobs from France Travail.")
-    conn.close()
