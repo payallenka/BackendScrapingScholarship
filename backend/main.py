@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -52,6 +53,35 @@ _job_scrape_state = {"running": False, "started_at": None, "finished_at": None, 
 
 from scrapers.jobs.run_all_jobs import run_all_jobs
 from scrapers.jobs.direct_links import DIRECT_LINK_SOURCES
+
+# Country inference helpers for /api/jobs/suggest
+_SOURCE_COUNTRY = {
+    "canada_job_bank":     "canada",
+    "nhs_jobs":            "united kingdom",
+    "uk_sponsor_register": "united kingdom",
+}
+_CA_PROVINCE_RE = re.compile(
+    r'\b(?:on|qc|bc|ab|mb|sk|ns|nb|pe|nl|nt|yt|nu)\b', re.IGNORECASE
+)
+
+def _job_countries(location: str, source: str) -> set:
+    """Return a set of inferred country names (lowercase) for a job."""
+    loc = location.lower()
+    out = set()
+    if "canada" in loc or _CA_PROVINCE_RE.search(loc):
+        out.add("canada")
+    if any(x in loc for x in ("united kingdom", "england", "scotland", "wales", "northern ireland")):
+        out.add("united kingdom")
+    if "germany" in loc or "deutschland" in loc:
+        out.add("germany")
+    if "australia" in loc:
+        out.add("australia")
+    if "remote" in loc:
+        out.add("remote")
+    src_country = _SOURCE_COUNTRY.get(source, "")
+    if src_country:
+        out.add(src_country)
+    return out
 
 
 # --- Job scrape triggers ---
@@ -174,6 +204,10 @@ def suggest_jobs(
     field_keywords = [w.lower() for w in (field or "").split() if len(w) > 2]
     country_list = [c.strip().lower() for c in (countries or "").split(",") if c.strip()]
 
+    # No criteria → return most recent jobs
+    if not field_keywords and not country_list:
+        return {"suggestions": rows[:limit]}
+
     scored = []
     for job in rows:
         try:
@@ -188,13 +222,15 @@ def suggest_jobs(
             tags_text,
         ])).lower()
         location = (job.get("location") or "").lower()
+        source = (job.get("source") or "").lower()
+        job_ctries = _job_countries(location, source)
 
         score = 0
         for kw in field_keywords:
             if kw in combined:
                 score += 2
         for country in country_list:
-            if country in location:
+            if country in job_ctries:
                 score += 3
 
         if score > 0:
