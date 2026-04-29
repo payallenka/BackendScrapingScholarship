@@ -163,14 +163,13 @@ def list_jobs(
         cutoff = (datetime.utcnow() - timedelta(hours=posted_hours)).isoformat()
         query = query.gte("posted_at", cutoff)
     if category:
-        # Free-text: search broadly across title, description and tags
+        # Search title and tags only — description is too noisy for category matching
         term = category.replace("*", "").replace("%", "")
-        query = query.or_(f"title.ilike.*{term}*,description.ilike.*{term}*,tags.ilike.*{term}*")
+        query = query.or_(f"title.ilike.*{term}*,tags.ilike.*{term}*")
     if experience and experience in _EXPERIENCE_KEYWORDS:
         kws = _EXPERIENCE_KEYWORDS[experience]
-        # Search both title and description for level keywords
-        conditions = [f"title.ilike.*{kw}*,description.ilike.*{kw}*" for kw in kws]
-        query = query.or_(",".join(conditions))
+        # Title only for experience level — descriptions mention levels too loosely
+        query = query.or_(",".join(f"title.ilike.*{kw}*" for kw in kws))
 
     query = query.order(sort_col, desc=desc, nullsfirst=False)
     query = query.range(offset, offset + limit - 1)
