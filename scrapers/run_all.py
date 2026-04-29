@@ -1,5 +1,5 @@
 """
-Run all scrapers, normalize results, and persist to SQLite.
+Run all scrapers, normalize results, and persist to Supabase.
 
 Usage:
     python -m scrapers.run_all                  # run all scrapers
@@ -11,14 +11,11 @@ import argparse
 import json
 import logging
 import os
-import sqlite3
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
-from typing import List
 
 from dotenv import load_dotenv
+from supabase import create_client
 
 load_dotenv()
 
@@ -28,61 +25,48 @@ logging.basicConfig(
 )
 logger = logging.getLogger("run_all")
 
-DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent.parent / "backend" / "scholarships.db")))
+
+def init_db():
+    # Tables are managed in Supabase — nothing to do locally
+    pass
 
 
-def init_db(conn: sqlite3.Connection):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS scholarships (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            organization TEXT,
-            description TEXT,
-            amount TEXT,
-            amount_usd REAL,
-            funding_type TEXT,
-            deadline TEXT,
-            deadline_raw TEXT,
-            degree_levels TEXT,
-            fields_of_study TEXT,
-            eligible_nationalities TEXT,
-            host_countries TEXT,
-            source_url TEXT NOT NULL,
-            source_site TEXT NOT NULL,
-            tags TEXT,
-            scraped_at TEXT NOT NULL,
-            is_open INTEGER,
-            image_url TEXT
-        )
-    """)
-    # Add funding_type column to existing databases that predate this field
-    try:
-        conn.execute("ALTER TABLE scholarships ADD COLUMN funding_type TEXT")
-    except Exception:
-        pass
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_source_site ON scholarships(source_site)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_deadline ON scholarships(deadline)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_scraped_at ON scholarships(scraped_at)")
-    conn.commit()
+def _get_supabase():
+    return create_client(
+        os.environ["SUPABASE_URL"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    )
 
 
-def upsert_scholarships(conn: sqlite3.Connection, scholarships):
-    rows = []
-    for s in scholarships:
-        rows.append((
-            s.id, s.title, s.organization, s.description,
-            s.amount, s.amount_usd, s.funding_type, s.deadline, s.deadline_raw,
-            json.dumps(s.degree_levels), json.dumps(s.fields_of_study),
-            json.dumps(s.eligible_nationalities), json.dumps(s.host_countries),
-            s.source_url, s.source_site, json.dumps(s.tags),
-            s.scraped_at, int(s.is_open) if s.is_open is not None else None,
-            s.image_url,
-        ))
-    conn.executemany("""
-        INSERT OR REPLACE INTO scholarships
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, rows)
-    conn.commit()
+def upsert_scholarships(scholarships):
+    if not scholarships:
+        return
+    sb = _get_supabase()
+    rows = [
+        {
+            "id": s.id,
+            "title": s.title,
+            "organization": s.organization,
+            "description": s.description,
+            "amount": s.amount,
+            "amount_usd": s.amount_usd,
+            "funding_type": s.funding_type,
+            "deadline": s.deadline,
+            "deadline_raw": s.deadline_raw,
+            "degree_levels": json.dumps(s.degree_levels),
+            "fields_of_study": json.dumps(s.fields_of_study),
+            "eligible_nationalities": json.dumps(s.eligible_nationalities),
+            "host_countries": json.dumps(s.host_countries),
+            "source_url": s.source_url,
+            "source_site": s.source_site,
+            "tags": json.dumps(s.tags),
+            "scraped_at": s.scraped_at,
+            "is_open": int(s.is_open) if s.is_open is not None else None,
+            "image_url": s.image_url,
+        }
+        for s in scholarships
+    ]
+    sb.table("scholarships").upsert(rows, on_conflict="id").execute()
 
 
 def run_scraper(scraper_cls, max_pages: int):
@@ -107,11 +91,6 @@ def main():
     if args.sites:
         scrapers_to_run = [s for s in ALL_SCRAPERS if s(max_pages=1).name in args.sites]
 
-
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    init_db(conn)
-
     total = 0
     start = time.time()
 
@@ -122,15 +101,14 @@ def main():
             try:
                 results = future.result()
                 if results:
-                    upsert_scholarships(conn, results)
+                    upsert_scholarships(results)
                     total += len(results)
                     logger.info(f"{cls.__name__}: saved {len(results)} scholarships (total: {total})")
             except Exception as e:
                 logger.error(f"{cls.__name__} failed: {e}")
 
-    conn.close()
     elapsed = time.time() - start
-    logger.info(f"\nDone! {total} scholarships saved to {DB_PATH} in {elapsed:.1f}s")
+    logger.info(f"\nDone! {total} scholarships saved in {elapsed:.1f}s")
 
 
 if __name__ == "__main__":

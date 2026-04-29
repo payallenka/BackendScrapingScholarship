@@ -10,13 +10,12 @@ Endpoints:
   GET  /api/scrape/status      — scrape job status
 """
 from __future__ import annotations
-import asyncio
 import json
 import logging
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -25,17 +24,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from backend.database import get_conn, row_to_dict, DB_PATH, init_jobs_table
-from scrapers.run_all import init_db
+from backend.database import get_supabase, row_to_dict
 
 logger = logging.getLogger(__name__)
-
-# Initialize DB on import so endpoints always have a valid schema
-_conn = get_conn()
-init_db(_conn)
-init_jobs_table(_conn)
-_conn.close()
-del _conn
 
 app = FastAPI(title="Scholarship Aggregator API", version="1.0.0")
 
@@ -52,20 +43,20 @@ if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 # ---------------------------------------------------------------------------
-# Scrape job state (in-memory, single worker)
+# Scrape state (in-memory)
 # ---------------------------------------------------------------------------
 _scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None}
-
+_job_scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None}
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
-# --- Job Scraping Endpoints ---
 from scrapers.jobs.run_all_jobs import run_all_jobs
+from scrapers.jobs.direct_links import DIRECT_LINK_SOURCES
 
-# Scrape job state (in-memory, single worker) for jobs
-_job_scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None}
+
+# --- Job scrape triggers ---
 
 @app.post("/api/jobs/scrape")
 def trigger_jobs_scrape(background_tasks: BackgroundTasks):
@@ -74,9 +65,11 @@ def trigger_jobs_scrape(background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_jobs_scrape)
     return {"status": "started"}
 
+
 @app.get("/api/jobs/scrape/status")
 def jobs_scrape_status():
     return _job_scrape_state
+
 
 def _run_jobs_scrape():
     global _job_scrape_state
@@ -87,8 +80,8 @@ def _run_jobs_scrape():
     except Exception as e:
         _job_scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "error": str(e)})
 
-# --- General Job Listing & Direct-Link Sources ---
-from scrapers.jobs.direct_links import DIRECT_LINK_SOURCES
+
+# --- Job listing ---
 
 @app.get("/api/jobs")
 def list_jobs(
@@ -102,42 +95,37 @@ def list_jobs(
     limit: int = Query(24, le=100),
     offset: int = Query(0),
 ):
-    conn = get_conn()
-    conditions = ["(expires_at IS NULL OR expires_at >= date('now'))"]
-    params = []
-    if search:
-        conditions.append("(LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(company) LIKE ?)")
-        term = f"%{search.lower()}%"
-        params += [term, term, term]
-    if company:
-        conditions.append("LOWER(company) = ?")
-        params.append(company.lower())
-    if location:
-        conditions.append("LOWER(location) LIKE ?")
-        params.append(f"%{location.lower()}%")
-    if contract_type:
-        conditions.append("LOWER(contract_type) LIKE ?")
-        params.append(f"%{contract_type.lower()}%")
-    if source:
-        conditions.append("LOWER(source) = ?")
-        params.append(source.lower())
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    sb = get_supabase()
     sort_col = sort if sort in ("posted_at", "ingested_at", "salary_min", "salary_max") else "posted_at"
-    order_dir = "DESC" if order.lower() == "desc" else "ASC"
-    order_clause = f"ORDER BY CASE WHEN {sort_col} IS NULL THEN 1 ELSE 0 END, {sort_col} {order_dir}"
-    count_row = conn.execute(f"SELECT COUNT(*) as cnt FROM jobs {where}", params).fetchone()
-    total = count_row["cnt"] if count_row else 0
-    rows = conn.execute(
-        f"SELECT * FROM jobs {where} {order_clause} LIMIT ? OFFSET ?",
-        params + [limit, offset],
-    ).fetchall()
-    conn.close()
+    desc = order.lower() == "desc"
+    today = date.today().isoformat()
+
+    query = sb.table("jobs").select("*", count="exact")
+    query = query.or_(f"expires_at.is.null,expires_at.gte.{today}")
+
+    if search:
+        term = search.replace("*", "").replace("%", "")
+        query = query.or_(f"title.ilike.*{term}*,description.ilike.*{term}*,company.ilike.*{term}*")
+    if company:
+        query = query.ilike("company", company)
+    if location:
+        query = query.ilike("location", f"%{location}%")
+    if contract_type:
+        query = query.ilike("contract_type", f"%{contract_type}%")
+    if source:
+        query = query.ilike("source", source)
+
+    query = query.order(sort_col, desc=desc, nullsfirst=False)
+    query = query.range(offset, offset + limit - 1)
+
+    response = query.execute()
     return {
-        "total": total,
+        "total": response.count or 0,
         "limit": limit,
         "offset": offset,
-        "items": [dict(r) for r in rows],
+        "items": response.data,
     }
+
 
 @app.get("/api/jobs/direct-links")
 def get_direct_link_jobs():
@@ -147,12 +135,16 @@ def get_direct_link_jobs():
 @app.get("/api/jobs/sources/status")
 def jobs_sources_status():
     try:
-        conn = get_conn()
-        rows = conn.execute(
-            "SELECT source, COUNT(*) as cnt, MAX(ingested_at) as last_ingested FROM jobs GROUP BY source"
-        ).fetchall()
-        conn.close()
-        return [{"source": r["source"], "count": r["cnt"], "last_ingested": r["last_ingested"]} for r in rows]
+        sb = get_supabase()
+        response = sb.table("jobs").select("source,ingested_at").execute()
+        counts: dict = {}
+        latest: dict = {}
+        for r in response.data:
+            s = r["source"]
+            counts[s] = counts.get(s, 0) + 1
+            if not latest.get(s) or (r["ingested_at"] or "") > latest[s]:
+                latest[s] = r["ingested_at"]
+        return [{"source": s, "count": c, "last_ingested": latest.get(s)} for s, c in counts.items()]
     except Exception:
         return []
 
@@ -163,14 +155,16 @@ def suggest_jobs(
     countries: Optional[str] = Query(None, description="Comma-separated list of target countries"),
     limit: int = Query(6, le=20),
 ):
-    import json as _json
-
     try:
-        conn = get_conn()
-        rows = conn.execute(
-            "SELECT * FROM jobs ORDER BY CASE WHEN posted_at IS NULL THEN 1 ELSE 0 END, posted_at DESC LIMIT 300"
-        ).fetchall()
-        conn.close()
+        sb = get_supabase()
+        response = (
+            sb.table("jobs")
+            .select("*")
+            .order("posted_at", desc=True, nullsfirst=False)
+            .limit(300)
+            .execute()
+        )
+        rows = response.data
     except Exception:
         return {"suggestions": []}
 
@@ -178,10 +172,9 @@ def suggest_jobs(
     country_list = [c.strip().lower() for c in (countries or "").split(",") if c.strip()]
 
     scored = []
-    for row in rows:
-        job = dict(row)
+    for job in rows:
         try:
-            tags = _json.loads(job.get("tags") or "[]")
+            tags = json.loads(job.get("tags") or "[]")
         except Exception:
             tags = []
         tags_text = " ".join(str(t).lower() for t in tags)
@@ -207,6 +200,9 @@ def suggest_jobs(
     scored.sort(key=lambda x: x[0], reverse=True)
     return {"suggestions": [j for _, j in scored[:limit]]}
 
+
+# --- Static frontend ---
+
 @app.get("/")
 def index():
     html = FRONTEND_DIR / "index.html"
@@ -214,6 +210,8 @@ def index():
         return FileResponse(str(html))
     return {"message": "Scholarship Aggregator API — visit /docs"}
 
+
+# --- Scholarship listing ---
 
 @app.get("/api/scholarships")
 def list_scholarships(
@@ -230,110 +228,119 @@ def list_scholarships(
     limit: int = Query(24, le=100),
     offset: int = Query(0),
 ):
-    conn = get_conn()
-    conditions = []
-    params = []
+    sb = get_supabase()
+    sort_col = sort if sort in ("scraped_at", "deadline", "title", "amount_usd") else "scraped_at"
+    desc = order.lower() == "desc"
+
+    query = sb.table("scholarships").select("*", count="exact")
 
     if search:
-        conditions.append("(LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(organization) LIKE ?)")
-        term = f"%{search.lower()}%"
-        params += [term, term, term]
-
+        term = search.replace("*", "").replace("%", "")
+        query = query.or_(f"title.ilike.*{term}*,description.ilike.*{term}*,organization.ilike.*{term}*")
     if degree_level:
-        conditions.append("degree_levels LIKE ?")
-        params.append(f'%"{degree_level}"%')
-
+        query = query.ilike("degree_levels", f'%"{degree_level}"%')
     if source_site:
-        conditions.append("LOWER(source_site) = ?")
-        params.append(source_site.lower())
-
+        query = query.ilike("source_site", source_site)
     if eligible_nationality:
-        conditions.append("eligible_nationalities LIKE ?")
-        params.append(f"%{eligible_nationality}%")
-
+        query = query.ilike("eligible_nationalities", f"%{eligible_nationality}%")
     if host_country:
-        conditions.append("host_countries LIKE ?")
-        params.append(f"%{host_country}%")
-
+        query = query.ilike("host_countries", f"%{host_country}%")
     if deadline_before:
-        conditions.append("deadline <= ?")
-        params.append(deadline_before)
-
+        query = query.lte("deadline", deadline_before)
     if deadline_after:
-        conditions.append("(deadline >= ? OR deadline IS NULL)")
-        params.append(deadline_after)
-
+        query = query.or_(f"deadline.gte.{deadline_after},deadline.is.null")
     if has_amount:
-        conditions.append("amount IS NOT NULL AND amount != ''")
+        query = query.not_.is_("amount", "null").neq("amount", "")
 
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    query = query.order(sort_col, desc=desc, nullsfirst=False)
+    query = query.range(offset, offset + limit - 1)
 
-    sort_col = sort if sort in ("scraped_at", "deadline", "title", "amount_usd") else "scraped_at"
-    order_dir = "DESC" if order.lower() == "desc" else "ASC"
-
-    # Null-safe sort: NULLs last
-    order_clause = f"ORDER BY CASE WHEN {sort_col} IS NULL THEN 1 ELSE 0 END, {sort_col} {order_dir}"
-
-    count_row = conn.execute(f"SELECT COUNT(*) as cnt FROM scholarships {where}", params).fetchone()
-    total = count_row["cnt"] if count_row else 0
-
-    rows = conn.execute(
-        f"SELECT * FROM scholarships {where} {order_clause} LIMIT ? OFFSET ?",
-        params + [limit, offset],
-    ).fetchall()
-    conn.close()
-
+    response = query.execute()
     return {
-        "total": total,
+        "total": response.count or 0,
         "limit": limit,
         "offset": offset,
-        "items": [row_to_dict(r) for r in rows],
+        "items": [row_to_dict(r) for r in response.data],
     }
 
 
 @app.get("/api/scholarships/{scholarship_id}")
 def get_scholarship(scholarship_id: str):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM scholarships WHERE id = ?", [scholarship_id]).fetchone()
-    conn.close()
-    if not row:
+    sb = get_supabase()
+    response = sb.table("scholarships").select("*").eq("id", scholarship_id).execute()
+    if not response.data:
         raise HTTPException(status_code=404, detail="Not found")
-    return row_to_dict(row)
+    return row_to_dict(response.data[0])
 
 
 @app.get("/api/stats")
 def get_stats():
-    conn = get_conn()
-    total = conn.execute("SELECT COUNT(*) as cnt FROM scholarships").fetchone()["cnt"]
-    sites = conn.execute(
-        "SELECT source_site, COUNT(*) as cnt FROM scholarships GROUP BY source_site ORDER BY cnt DESC"
-    ).fetchall()
-    degrees = conn.execute(
-        "SELECT degree_levels, COUNT(*) as cnt FROM scholarships GROUP BY degree_levels ORDER BY cnt DESC LIMIT 10"
-    ).fetchall()
-    with_deadline = conn.execute("SELECT COUNT(*) as cnt FROM scholarships WHERE deadline IS NOT NULL").fetchone()["cnt"]
-    with_amount = conn.execute("SELECT COUNT(*) as cnt FROM scholarships WHERE amount IS NOT NULL AND amount != ''").fetchone()["cnt"]
-    latest = conn.execute("SELECT scraped_at FROM scholarships ORDER BY scraped_at DESC LIMIT 1").fetchone()
-    conn.close()
+    sb = get_supabase()
+
+    total_resp = sb.table("scholarships").select("*", count="exact").execute()
+    total = total_resp.count or 0
+
+    site_resp = sb.table("scholarships").select("source_site").execute()
+    site_counts: dict = {}
+    for r in site_resp.data:
+        s = r["source_site"]
+        site_counts[s] = site_counts.get(s, 0) + 1
+    by_site = sorted(
+        [{"site": s, "count": c} for s, c in site_counts.items()],
+        key=lambda x: -x["count"],
+    )
+
+    degree_resp = sb.table("scholarships").select("degree_levels").execute()
+    degree_counts: dict = {}
+    for r in degree_resp.data:
+        d = r.get("degree_levels")
+        if d:
+            degree_counts[d] = degree_counts.get(d, 0) + 1
+    by_degree = sorted(
+        [{"degree": d, "count": c} for d, c in degree_counts.items()],
+        key=lambda x: -x["count"],
+    )[:10]
+
+    deadline_resp = sb.table("scholarships").select("*", count="exact").not_.is_("deadline", "null").execute()
+    with_deadline = deadline_resp.count or 0
+
+    amount_resp = (
+        sb.table("scholarships")
+        .select("*", count="exact")
+        .not_.is_("amount", "null")
+        .neq("amount", "")
+        .execute()
+    )
+    with_amount = amount_resp.count or 0
+
+    latest_resp = (
+        sb.table("scholarships")
+        .select("scraped_at")
+        .order("scraped_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    last_scraped = latest_resp.data[0]["scraped_at"] if latest_resp.data else None
 
     return {
         "total": total,
         "with_deadline": with_deadline,
         "with_amount": with_amount,
-        "last_scraped": latest["scraped_at"] if latest else None,
-        "by_site": [{"site": r["source_site"], "count": r["cnt"]} for r in sites],
-        "by_degree": [{"degree": r["degree_levels"], "count": r["cnt"]} for r in degrees],
+        "last_scraped": last_scraped,
+        "by_site": by_site,
+        "by_degree": by_degree,
     }
 
 
 @app.get("/api/sites")
 def get_sites():
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT source_site, COUNT(*) as cnt FROM scholarships GROUP BY source_site ORDER BY source_site"
-    ).fetchall()
-    conn.close()
-    return [{"name": r["source_site"], "count": r["cnt"]} for r in rows]
+    sb = get_supabase()
+    response = sb.table("scholarships").select("source_site").execute()
+    counts: dict = {}
+    for r in response.data:
+        s = r["source_site"]
+        counts[s] = counts.get(s, 0) + 1
+    return [{"name": s, "count": c} for s, c in sorted(counts.items())]
 
 
 @app.post("/api/match")
@@ -349,6 +356,8 @@ async def match_endpoint(profile: dict):
         logger.error(f"Match error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# --- Scholarship scrape triggers ---
 
 @app.post("/api/scrape")
 def trigger_scrape(background_tasks: BackgroundTasks, max_pages: int = Query(5), owl: bool = Query(False)):
@@ -372,7 +381,6 @@ def _run_scrape(max_pages: int = 5, owl: bool = False):
         if owl:
             cmd.append("--owl")
         result = subprocess.run(cmd, cwd=str(project_root), capture_output=True, text=True, timeout=3600)
-        # Parse count from output
         import re
         m = re.search(r"(\d+) scholarships saved", result.stdout + result.stderr)
         count = int(m.group(1)) if m else 0
