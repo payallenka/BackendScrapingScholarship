@@ -36,16 +36,6 @@ init_db(_conn)
 _conn.close()
 del _conn
 
-
-# In-memory cache for match results (profile_hash -> result, timestamp)
-import hashlib
-import threading
-from time import time
-
-_match_cache = {}
-_cache_lock = threading.Lock()
-_CACHE_TTL = 60 * 30  # 30 minutes
-
 app = FastAPI(title="Scholarship Aggregator API", version="1.0.0")
 
 app.add_middleware(
@@ -69,6 +59,152 @@ _scrape_state = {"running": False, "started_at": None, "finished_at": None, "cou
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+# --- Job Scraping Endpoints ---
+from scrapers.jobs.run_all_jobs import run_all_jobs
+
+# Scrape job state (in-memory, single worker) for jobs
+_job_scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None}
+
+@app.post("/api/jobs/scrape")
+def trigger_jobs_scrape(background_tasks: BackgroundTasks):
+    if _job_scrape_state["running"]:
+        return {"status": "already_running", "started_at": _job_scrape_state["started_at"]}
+    background_tasks.add_task(_run_jobs_scrape)
+    return {"status": "started"}
+
+@app.get("/api/jobs/scrape/status")
+def jobs_scrape_status():
+    return _job_scrape_state
+
+def _run_jobs_scrape():
+    global _job_scrape_state
+    _job_scrape_state = {"running": True, "started_at": datetime.utcnow().isoformat(), "finished_at": None, "count": 0, "error": None}
+    try:
+        run_all_jobs()
+        _job_scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "count": 0})
+    except Exception as e:
+        _job_scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "error": str(e)})
+
+# --- General Job Listing & Direct-Link Sources ---
+from scrapers.jobs.direct_links import DIRECT_LINK_SOURCES
+
+@app.get("/api/jobs")
+def list_jobs(
+    search: Optional[str] = Query(None),
+    company: Optional[str] = Query(None),
+    location: Optional[str] = Query(None),
+    contract_type: Optional[str] = Query(None),
+    source: Optional[str] = Query(None),
+    sort: str = Query("posted_at", description="posted_at|ingested_at|salary_min|salary_max"),
+    order: str = Query("desc"),
+    limit: int = Query(24, le=100),
+    offset: int = Query(0),
+):
+    conn = get_conn()
+    conditions = ["(expires_at IS NULL OR expires_at >= date('now'))"]
+    params = []
+    if search:
+        conditions.append("(LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(company) LIKE ?)")
+        term = f"%{search.lower()}%"
+        params += [term, term, term]
+    if company:
+        conditions.append("LOWER(company) = ?")
+        params.append(company.lower())
+    if location:
+        conditions.append("LOWER(location) LIKE ?")
+        params.append(f"%{location.lower()}%")
+    if contract_type:
+        conditions.append("LOWER(contract_type) LIKE ?")
+        params.append(f"%{contract_type.lower()}%")
+    if source:
+        conditions.append("LOWER(source) = ?")
+        params.append(source.lower())
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    sort_col = sort if sort in ("posted_at", "ingested_at", "salary_min", "salary_max") else "posted_at"
+    order_dir = "DESC" if order.lower() == "desc" else "ASC"
+    order_clause = f"ORDER BY CASE WHEN {sort_col} IS NULL THEN 1 ELSE 0 END, {sort_col} {order_dir}"
+    count_row = conn.execute(f"SELECT COUNT(*) as cnt FROM jobs {where}", params).fetchone()
+    total = count_row["cnt"] if count_row else 0
+    rows = conn.execute(
+        f"SELECT * FROM jobs {where} {order_clause} LIMIT ? OFFSET ?",
+        params + [limit, offset],
+    ).fetchall()
+    conn.close()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [dict(r) for r in rows],
+    }
+
+@app.get("/api/jobs/direct-links")
+def get_direct_link_jobs():
+    return {"direct_links": DIRECT_LINK_SOURCES}
+
+
+@app.get("/api/jobs/sources/status")
+def jobs_sources_status():
+    try:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT source, COUNT(*) as cnt, MAX(ingested_at) as last_ingested FROM jobs GROUP BY source"
+        ).fetchall()
+        conn.close()
+        return [{"source": r["source"], "count": r["cnt"], "last_ingested": r["last_ingested"]} for r in rows]
+    except Exception:
+        return []
+
+
+@app.get("/api/jobs/suggest")
+def suggest_jobs(
+    field: Optional[str] = Query(None),
+    countries: Optional[str] = Query(None, description="Comma-separated list of target countries"),
+    limit: int = Query(6, le=20),
+):
+    import json as _json
+
+    try:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT * FROM jobs ORDER BY CASE WHEN posted_at IS NULL THEN 1 ELSE 0 END, posted_at DESC LIMIT 300"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return {"suggestions": []}
+
+    field_keywords = [w.lower() for w in (field or "").split() if len(w) > 2]
+    country_list = [c.strip().lower() for c in (countries or "").split(",") if c.strip()]
+
+    scored = []
+    for row in rows:
+        job = dict(row)
+        try:
+            tags = _json.loads(job.get("tags") or "[]")
+        except Exception:
+            tags = []
+        tags_text = " ".join(str(t).lower() for t in tags)
+        combined = " ".join(filter(None, [
+            job.get("title", ""),
+            job.get("description", "") or "",
+            job.get("contract_type", "") or "",
+            tags_text,
+        ])).lower()
+        location = (job.get("location") or "").lower()
+
+        score = 0
+        for kw in field_keywords:
+            if kw in combined:
+                score += 2
+        for country in country_list:
+            if country in location:
+                score += 3
+
+        if score > 0:
+            scored.append((score, job))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return {"suggestions": [j for _, j in scored[:limit]]}
 
 @app.get("/")
 def index():
@@ -199,33 +335,12 @@ def get_sites():
     return [{"name": r["source_site"], "count": r["cnt"]} for r in rows]
 
 
-
-# Helper: hash profile dict for cache key
-def _profile_hash(profile: dict) -> str:
-    # Sort keys for deterministic hash
-    profile_str = json.dumps(profile, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(profile_str.encode()).hexdigest()
-
 @app.post("/api/match")
 async def match_endpoint(profile: dict):
     from backend.matcher import match_scholarships, UserProfile
-    cache_key = _profile_hash(profile)
-    now = time()
-    # Try cache
-    with _cache_lock:
-        cached = _match_cache.get(cache_key)
-        if cached:
-            result, ts = cached
-            if now - ts < _CACHE_TTL:
-                return result
-            else:
-                del _match_cache[cache_key]
-    # Not cached or expired
     try:
         p = UserProfile(**profile)
         result = await match_scholarships(p)
-        with _cache_lock:
-            _match_cache[cache_key] = (result, now)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

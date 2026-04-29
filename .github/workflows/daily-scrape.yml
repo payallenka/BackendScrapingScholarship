@@ -9,20 +9,37 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger scrape
+      # ── Scholarships ──────────────────────────────────────────────────────────
+      - name: Trigger scholarship scrape
         run: |
           curl -X POST "${{ secrets.RENDER_URL }}/api/scrape" \
-            --fail \
-            --silent \
-            --show-error
+            --fail --silent --show-error
 
-      - name: Wait for scrape to finish
+      - name: Wait for scholarship scrape to finish
         run: |
           for i in $(seq 1 60); do
             STATUS=$(curl -s "${{ secrets.RENDER_URL }}/api/scrape/status" | python3 -c "import sys,json; print(json.load(sys.stdin)['running'])")
             echo "Attempt $i: running=$STATUS"
             if [ "$STATUS" = "False" ]; then
-              echo "Scrape complete."
+              echo "Scholarship scrape complete."
+              break
+            fi
+            sleep 60
+          done
+
+      # ── Jobs ──────────────────────────────────────────────────────────────────
+      - name: Trigger jobs scrape
+        run: |
+          curl -X POST "${{ secrets.RENDER_URL }}/api/jobs/scrape" \
+            --fail --silent --show-error
+
+      - name: Wait for jobs scrape to finish
+        run: |
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s "${{ secrets.RENDER_URL }}/api/jobs/scrape/status" | python3 -c "import sys,json; print(json.load(sys.stdin)['running'])")
+            echo "Attempt $i: running=$STATUS"
+            if [ "$STATUS" = "False" ]; then
+              echo "Jobs scrape complete."
               exit 0
             fi
             sleep 60

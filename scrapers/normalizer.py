@@ -72,6 +72,27 @@ class NormalizedScholarship(BaseModel):
     is_open: Optional[bool] = None
     image_url: Optional[str] = None
 
+
+# --- Jobs Model (non-intrusive) ---
+class NormalizedJob(BaseModel):
+    id: str
+    title: str
+    company: Optional[str] = None
+    location: Optional[str] = None
+    contract_type: Optional[str] = None
+    salary_min: Optional[float] = None
+    salary_max: Optional[float] = None
+    currency: Optional[str] = None
+    description: Optional[str] = None
+    tags: list[str] = []
+    source: str
+    apply_url: str
+    posted_at: Optional[str] = None
+    ingested_at: str
+    expires_at: Optional[str] = None
+    logo_url: Optional[str] = None
+    extra_data: Optional[dict] = None
+
     @field_validator("title")
     @classmethod
     def clean_title(cls, v: str) -> str:
