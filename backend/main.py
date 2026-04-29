@@ -303,8 +303,6 @@ def list_scholarships(
         query = query.ilike("degree_levels", f'%"{degree_level}"%')
     if source_site:
         query = query.ilike("source_site", source_site)
-    if eligible_nationality:
-        query = query.ilike("eligible_nationalities", f"%{eligible_nationality}%")
     if host_country:
         query = query.ilike("host_countries", f"%{host_country}%")
     if deadline_before:
@@ -315,8 +313,23 @@ def list_scholarships(
         query = query.not_.is_("amount", "null").neq("amount", "")
 
     query = query.order(sort_col, desc=desc, nullsfirst=False)
-    query = query.range(offset, offset + limit - 1)
 
+    # eligible_nationality: ilike on the JSON-text column crashes Supabase's
+    # PostgREST worker (Cloudflare error 1101), so filter in Python instead.
+    if eligible_nationality:
+        nat_lower = eligible_nationality.lower()
+        all_rows = query.limit(5000).execute().data or []
+        filtered = [r for r in all_rows if nat_lower in (r.get("eligible_nationalities") or "").lower()]
+        total = len(filtered)
+        paged = filtered[offset: offset + limit]
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "items": [row_to_dict(r) for r in paged],
+        }
+
+    query = query.range(offset, offset + limit - 1)
     response = query.execute()
     return {
         "total": response.count or 0,
