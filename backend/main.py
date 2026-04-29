@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from backend.database import get_conn, row_to_dict, DB_PATH
+from backend.database import get_conn, row_to_dict, DB_PATH, init_jobs_table
 from scrapers.run_all import init_db
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Initialize DB on import so endpoints always have a valid schema
 _conn = get_conn()
 init_db(_conn)
+init_jobs_table(_conn)
 _conn.close()
 del _conn
 
