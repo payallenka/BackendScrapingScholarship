@@ -116,6 +116,23 @@ def _run_jobs_scrape():
 
 # --- Job listing ---
 
+_EXPERIENCE_KEYWORDS = {
+    "entry":   ["junior", "entry", "graduate", "trainee", "intern"],
+    "mid":     ["mid-level", "intermediate", "associate"],
+    "senior":  ["senior", "sr.", "lead", "principal", "staff"],
+    "manager": ["manager", "director", "head", "chief"],
+}
+
+_CATEGORY_KEYWORDS = {
+    "tech":        ["software", "developer", "engineer", "data", "devops", "frontend", "backend", "cloud", "it "],
+    "healthcare":  ["nurse", "doctor", "healthcare", "medical", "clinical", "therapist", "pharmacist", "care"],
+    "finance":     ["finance", "financial", "accountant", "accounting", "analyst", "banking"],
+    "marketing":   ["marketing", "sales", "digital", "content", "brand", "seo"],
+    "education":   ["teacher", "lecturer", "professor", "tutor", "education", "trainer"],
+    "engineering": ["mechanical", "civil", "electrical", "structural", "chemical"],
+}
+
+
 @app.get("/api/jobs")
 def list_jobs(
     search: Optional[str] = Query(None),
@@ -123,6 +140,9 @@ def list_jobs(
     location: Optional[str] = Query(None),
     contract_type: Optional[str] = Query(None),
     source: Optional[str] = Query(None),
+    category: Optional[str] = Query(None, description="tech|healthcare|finance|marketing|education|engineering"),
+    experience: Optional[str] = Query(None, description="entry|mid|senior|manager"),
+    posted_hours: Optional[int] = Query(None, description="Only jobs posted in the last N hours (e.g. 24)"),
     sort: str = Query("posted_at", description="posted_at|ingested_at|salary_min|salary_max"),
     order: str = Query("desc"),
     limit: int = Query(24, le=100),
@@ -147,6 +167,16 @@ def list_jobs(
         query = query.ilike("contract_type", f"%{contract_type}%")
     if source:
         query = query.ilike("source", source)
+    if posted_hours:
+        from datetime import timedelta
+        cutoff = (datetime.utcnow() - timedelta(hours=posted_hours)).isoformat()
+        query = query.gte("posted_at", cutoff)
+    if category and category in _CATEGORY_KEYWORDS:
+        kws = _CATEGORY_KEYWORDS[category]
+        query = query.or_(",".join(f"title.ilike.*{kw}*" for kw in kws))
+    if experience and experience in _EXPERIENCE_KEYWORDS:
+        kws = _EXPERIENCE_KEYWORDS[experience]
+        query = query.or_(",".join(f"title.ilike.*{kw}*" for kw in kws))
 
     query = query.order(sort_col, desc=desc, nullsfirst=False)
     query = query.range(offset, offset + limit - 1)
