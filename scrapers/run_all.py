@@ -78,6 +78,32 @@ def run_scraper(scraper_cls, max_pages: int):
         return []
 
 
+def run_all_scrapers(max_pages: int = 10, workers: int = 4, on_source_done=None) -> int:
+    """Run all scrapers in-process. Returns total count saved."""
+    from scrapers.sites import ALL_SCRAPERS
+    total = 0
+    start = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(run_scraper, cls, max_pages): cls for cls in ALL_SCRAPERS}
+        for future in as_completed(futures):
+            cls = futures[future]
+            try:
+                results = future.result()
+                if results:
+                    upsert_scholarships(results)
+                    total += len(results)
+                    logger.info(f"{cls.__name__}: saved {len(results)} scholarships (running total: {total})")
+                    if on_source_done:
+                        on_source_done(cls.__name__, len(results), total)
+                else:
+                    logger.info(f"{cls.__name__}: 0 scholarships returned")
+            except Exception as e:
+                logger.error(f"{cls.__name__} failed: {e}")
+    elapsed = time.time() - start
+    logger.info(f"Done! {total} scholarships saved in {elapsed:.1f}s")
+    return total
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run all scholarship scrapers")
     parser.add_argument("--sites", nargs="*", help="Specific scraper names to run")

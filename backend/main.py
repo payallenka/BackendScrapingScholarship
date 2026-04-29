@@ -13,11 +13,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
-import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,8 +43,8 @@ if FRONTEND_DIR.exists():
 # ---------------------------------------------------------------------------
 # Scrape state (in-memory)
 # ---------------------------------------------------------------------------
-_scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None}
-_job_scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None}
+_scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None, "sources": {}}
+_job_scrape_state = {"running": False, "started_at": None, "finished_at": None, "count": 0, "error": None, "sources": {}}
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -73,10 +71,15 @@ def jobs_scrape_status():
 
 def _run_jobs_scrape():
     global _job_scrape_state
-    _job_scrape_state = {"running": True, "started_at": datetime.utcnow().isoformat(), "finished_at": None, "count": 0, "error": None}
+    _job_scrape_state = {"running": True, "started_at": datetime.utcnow().isoformat(), "finished_at": None, "count": 0, "error": None, "sources": {}}
+
+    def _on_source(name, count, total):
+        _job_scrape_state["count"] = total
+        _job_scrape_state["sources"][name] = count
+
     try:
-        run_all_jobs()
-        _job_scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "count": 0})
+        total = run_all_jobs(on_source_done=_on_source)
+        _job_scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "count": total})
     except Exception as e:
         _job_scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "error": str(e)})
 
@@ -374,16 +377,15 @@ def scrape_status():
 
 def _run_scrape(max_pages: int = 5, owl: bool = False):
     global _scrape_state
-    _scrape_state = {"running": True, "started_at": datetime.utcnow().isoformat(), "finished_at": None, "count": 0, "error": None}
+    _scrape_state = {"running": True, "started_at": datetime.utcnow().isoformat(), "finished_at": None, "count": 0, "error": None, "sources": {}}
+
+    def _on_source(name, count, total):
+        _scrape_state["count"] = total
+        _scrape_state["sources"][name] = count
+
     try:
-        project_root = Path(__file__).parent.parent
-        cmd = [sys.executable, "-m", "scrapers.run_all", "--max-pages", str(max_pages)]
-        if owl:
-            cmd.append("--owl")
-        result = subprocess.run(cmd, cwd=str(project_root), capture_output=True, text=True, timeout=3600)
-        import re
-        m = re.search(r"(\d+) scholarships saved", result.stdout + result.stderr)
-        count = int(m.group(1)) if m else 0
-        _scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "count": count})
+        from scrapers.run_all import run_all_scrapers
+        total = run_all_scrapers(max_pages=max_pages, on_source_done=_on_source)
+        _scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "count": total})
     except Exception as e:
         _scrape_state.update({"running": False, "finished_at": datetime.utcnow().isoformat(), "error": str(e)})

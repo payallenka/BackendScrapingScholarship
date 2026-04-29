@@ -13,7 +13,7 @@ from scrapers.jobs.nhs_jobs import fetch_nhs_jobs
 from scrapers.jobs.world_bank import fetch_world_bank_jobs
 
 
-def run_all_jobs():
+def run_all_jobs(on_source_done=None) -> int:
     total = 0
     for fetch_func, name in [
         (fetch_remoteok_jobs,        "RemoteOK"),
@@ -28,10 +28,15 @@ def run_all_jobs():
             if jobs:
                 upsert_jobs(jobs)
                 total += len(jobs)
-                logging.info(f"{name}: saved {len(jobs)} jobs (total: {total})")
+                logging.info(f"{name}: saved {len(jobs)} jobs (running total: {total})")
+                if on_source_done:
+                    on_source_done(name, len(jobs), total)
+            else:
+                logging.info(f"{name}: 0 jobs returned")
         except Exception as e:
             logging.error(f"{name} failed: {e}")
     logging.info(f"Done! {total} jobs saved.")
+    return total
 
 
 if __name__ == "__main__":
