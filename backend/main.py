@@ -131,6 +131,7 @@ def list_jobs(
     location: Optional[str] = Query(None),
     contract_type: Optional[str] = Query(None),
     source: Optional[str] = Query(None),
+    visa_sponsored: Optional[bool] = Query(None, description="If true, return only visa-sponsored sources"),
     category: Optional[str] = Query(None, description="Free-text category searched across title, description and tags"),
     experience: Optional[str] = Query(None, description="entry|mid|senior|manager"),
     posted_hours: Optional[int] = Query(None, description="Only jobs posted in the last N hours (e.g. 24)"),
@@ -158,6 +159,8 @@ def list_jobs(
         query = query.ilike("contract_type", f"%{contract_type}%")
     if source:
         query = query.ilike("source", source)
+    if visa_sponsored:
+        query = query.in_("source", ["uk_sponsor_register", "nhs_jobs", "canada_job_bank"])
     if posted_hours:
         from datetime import timedelta
         cutoff = (datetime.utcnow() - timedelta(hours=posted_hours)).isoformat()
