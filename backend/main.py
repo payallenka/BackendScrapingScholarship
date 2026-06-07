@@ -160,7 +160,7 @@ def list_jobs(
     if source:
         query = query.ilike("source", source)
     if visa_sponsored:
-        query = query.in_("source", ["uk_sponsor_register", "nhs_jobs", "canada_job_bank"])
+        query = query.eq("visa_sponsored", True)
     if posted_hours:
         from datetime import timedelta
         cutoff = (datetime.utcnow() - timedelta(hours=posted_hours)).isoformat()

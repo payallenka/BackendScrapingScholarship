@@ -52,6 +52,7 @@ def upsert_jobs(jobs):
             "ingested_at": j.ingested_at,
             "expires_at": getattr(j, "expires_at", None),
             "logo_url": j.logo_url,
+            "visa_sponsored": bool(getattr(j, "visa_sponsored", False)),
             "extra_data": json.dumps(j.extra_data) if j.extra_data else None,
         }
         for j in jobs

@@ -5,7 +5,7 @@ import logging
 import requests
 from datetime import datetime
 
-from scrapers.normalizer import NormalizedJob
+from scrapers.normalizer import NormalizedJob, detect_visa_sponsorship
 from backend.database import upsert_jobs
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,16 @@ def fetch_arbeitnow_jobs():
 
             contract_type = ", ".join(job_types) if job_types else None
 
+            # Arbeitnow exposes a per-job visa_sponsorship boolean; trust it, but
+            # also let keyword detection upgrade a false-negative.
+            visa_sponsored = detect_visa_sponsorship(
+                title=title,
+                description=description,
+                tags=tags,
+                source="arbeitnow",
+                explicit=bool(item.get("visa_sponsorship")),
+            )
+
             jobs.append(NormalizedJob(
                 id=f"arbeitnow_{slug}",
                 title=title,
@@ -72,6 +82,7 @@ def fetch_arbeitnow_jobs():
                 posted_at=posted_at,
                 ingested_at=now,
                 logo_url=logo_url,
+                visa_sponsored=visa_sponsored,
                 extra_data=None,
             ))
 

@@ -9,7 +9,7 @@ import uuid
 import warnings
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from dateutil import parser as dateparser
 from dateutil.parser._parser import UnknownTimezoneWarning
 
@@ -73,6 +73,68 @@ class NormalizedScholarship(BaseModel):
     image_url: Optional[str] = None
 
 
+# ---------------------------------------------------------------------------
+# Visa sponsorship detection (jobs)
+# ---------------------------------------------------------------------------
+
+# Sources that ARE, by definition, visa sponsors. The UK register is literally
+# the government list of employers licensed to sponsor work visas.
+INHERENT_VISA_SOURCES = {"uk_sponsor_register"}
+
+# Negative context first: "no visa sponsorship", "cannot sponsor", "without
+# sponsorship", "must already have the right to work" — these mean NO sponsorship
+# and must override any positive keyword.
+_VISA_NEG_RE = re.compile(
+    r"\b(?:no|not|cannot|can'?t|unable\s+to|do(?:es)?\s+not|don'?t|without|"
+    r"will\s+not|won'?t|are\s+not\s+able\s+to|are\s+unable\s+to|"
+    r"is\s+not\s+(?:available|offered|provided))\b[^.!?\n]{0,40}\bsponsor"
+    r"|must\s+(?:already\s+)?have\s+(?:the\s+)?(?:right\s+to\s+work|existing\s+right)"
+    r"|no\s+(?:visa\s+)?sponsorship",
+    re.I,
+)
+
+# Positive signals that an employer offers visa/work-permit sponsorship.
+_VISA_POS_RE = re.compile(
+    r"\bvisa\s+sponsorship\b"
+    r"|\bsponsor(?:ship)?\s+(?:is\s+)?(?:available|provided|offered)\b"
+    r"|\b(?:we|company|employer)\s+(?:can|will|are\s+able\s+to|are\s+happy\s+to|offer[s]?)\s+(?:visa\s+)?sponsor"
+    r"|\bsponsor\s+your\s+(?:visa|work\s+permit)\b"
+    r"|\bskilled\s+worker\s+visa\b|\btier\s*2\b|\bh-?1b\b"
+    r"|\bwork\s+permit\b|\bwork\s+visa\b"
+    r"|\bvisa\s+(?:support|assistance|sponsorship\s+available)\b"
+    r"|\beligible\s+for\s+(?:visa\s+)?sponsorship\b"
+    r"|\brelocation\s+(?:and\s+)?visa\b",
+    re.I,
+)
+
+
+def detect_visa_sponsorship(
+    title: str = "",
+    description: str = "",
+    tags: list[str] | None = None,
+    source: str = "",
+    explicit: Optional[bool] = None,
+) -> bool:
+    """Return True if a job offers visa sponsorship.
+
+    Hybrid policy:
+      1. An explicit per-job signal from the source API (e.g. Arbeitnow) wins.
+      2. Inherent visa-sponsor sources (UK sponsor register) are always True.
+      3. Otherwise scan title/description/tags for sponsorship keywords, with a
+         negative-context guard so "no visa sponsorship" is not flagged.
+    """
+    if explicit is True:
+        return True
+    if source in INHERENT_VISA_SOURCES:
+        return True
+    text = " ".join(filter(None, [title or "", description or "", " ".join(tags or [])]))
+    if not text.strip():
+        return False
+    if _VISA_NEG_RE.search(text):
+        return False
+    return bool(_VISA_POS_RE.search(text))
+
+
 # --- Jobs Model (non-intrusive) ---
 class NormalizedJob(BaseModel):
     id: str
@@ -91,7 +153,20 @@ class NormalizedJob(BaseModel):
     ingested_at: str
     expires_at: Optional[str] = None
     logo_url: Optional[str] = None
+    visa_sponsored: Optional[bool] = None
     extra_data: Optional[dict] = None
+
+    @model_validator(mode="after")
+    def _detect_visa(self):
+        # Auto-detect from content/source when a scraper didn't set it explicitly.
+        if self.visa_sponsored is None:
+            self.visa_sponsored = detect_visa_sponsorship(
+                title=self.title,
+                description=self.description,
+                tags=self.tags,
+                source=self.source,
+            )
+        return self
 
     @field_validator("title")
     @classmethod
