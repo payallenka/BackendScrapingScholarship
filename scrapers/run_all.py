@@ -13,6 +13,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, timedelta
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -69,6 +70,24 @@ def upsert_scholarships(scholarships):
     sb.table("scholarships").upsert(rows, on_conflict="id").execute()
 
 
+def purge_expired_scholarships(grace_days: int = 30) -> int:
+    """Delete scholarships whose deadline passed more than grace_days ago.
+
+    Undated scholarships (deadline NULL) are never purged — many sources never
+    publish a deadline. Returns the number of rows deleted.
+    """
+    sb = _get_supabase()
+    cutoff = (date.today() - timedelta(days=grace_days)).isoformat()
+    try:
+        resp = sb.table("scholarships").delete().lt("deadline", cutoff).execute()
+        deleted = len(resp.data or [])
+        logger.info(f"Purged {deleted} expired scholarships (deadline < {cutoff})")
+        return deleted
+    except Exception as e:
+        logger.error(f"Failed to purge expired scholarships: {e}")
+        return 0
+
+
 def run_scraper(scraper_cls, max_pages: int):
     try:
         scraper = scraper_cls(max_pages=max_pages)
@@ -99,6 +118,7 @@ def run_all_scrapers(max_pages: int = 10, workers: int = 4, on_source_done=None)
                     logger.info(f"{cls.__name__}: 0 scholarships returned")
             except Exception as e:
                 logger.error(f"{cls.__name__} failed: {e}")
+    purge_expired_scholarships()
     elapsed = time.time() - start
     logger.info(f"Done! {total} scholarships saved in {elapsed:.1f}s")
     return total
@@ -133,6 +153,7 @@ def main():
             except Exception as e:
                 logger.error(f"{cls.__name__} failed: {e}")
 
+    purge_expired_scholarships()
     elapsed = time.time() - start
     logger.info(f"\nDone! {total} scholarships saved in {elapsed:.1f}s")
 
