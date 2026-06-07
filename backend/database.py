@@ -59,7 +59,12 @@ def upsert_jobs(jobs):
     ]
     sb.table("jobs").upsert(rows, on_conflict="id").execute()
 
-    # Remove stale jobs from this source not in the latest scrape batch
+    # Remove stale jobs from this source not in the latest scrape batch.
+    # Each scraper stamps every job in a run with the same ingested_at, and the
+    # upsert above refreshes that timestamp on every current row — so anything
+    # left with a different ingested_at is stale. Keying off the timestamp avoids
+    # putting thousands of ids in the request URL (which overflows the URL length
+    # limit for large sources like the UK sponsor register).
     source = jobs[0].source
-    ids = [j.id for j in jobs]
-    sb.table("jobs").delete().eq("source", source).not_.in_("id", ids).execute()
+    batch_ts = jobs[0].ingested_at
+    sb.table("jobs").delete().eq("source", source).neq("ingested_at", batch_ts).execute()

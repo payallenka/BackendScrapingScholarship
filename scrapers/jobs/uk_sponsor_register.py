@@ -105,7 +105,13 @@ def fetch_uk_sponsor_jobs():
             description=description,
             tags=tags,
             source="uk_sponsor_register",
-            apply_url=f"https://www.google.com/search?q={requests.utils.quote(company_name + ' jobs visa sponsorship UK')}",
+            # The register lists licensed sponsors, not specific vacancies, so
+            # link to a LinkedIn Jobs search for current openings at this employer.
+            apply_url=(
+                "https://www.linkedin.com/jobs/search/?"
+                f"keywords={requests.utils.quote(company_name)}"
+                "&location=United%20Kingdom"
+            ),
             posted_at=None,
             ingested_at=now,
             logo_url=None,
