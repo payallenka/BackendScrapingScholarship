@@ -24,9 +24,12 @@ DEADLINE_LABEL_RE = re.compile(
     r"(?:application(?:\s+submission)?\s+)?deadline"
     r"|closing\s+dates?"
     r"|due\s+dates?"
-    r"|apply\s+(?:by|before|on\s+or\s+before)"
+    r"|apply\s+(?:by|before|on\s+or\s+before|no\s+later\s+than)"
+    # Only an *application* being submitted/received counts — not "project
+    # completed no later than ...", which is not an application deadline.
+    r"|applications?\s+(?:must\s+be\s+)?(?:submitted|received)\s+(?:by|before|no\s+later\s+than)"
     r"|last\s+(?:date|day)(?:\s+to\s+(?:apply|submit))?"
-    r"|applications?\s+(?:close|due|are\s+due|accepted\s+until|close\s+on)"
+    r"|applications?\s+(?:close|due|are\s+due|accepted\s+until|close\s+on|will\s+close|open\s+until)"
     r"|submission\s+(?:date|deadline)",
     re.I,
 )
@@ -65,8 +68,14 @@ def find_deadline_in_text(text: str) -> Optional[str]:
     if not text:
         return None
     for m in DEADLINE_LABEL_RE.finditer(text):
-        window = text[m.end(): m.end() + 80]
-        dm = DATE_NEAR_LABEL_RE.search(window)
+        # Prefer a date just after the label ("Deadline: 31 January 2026"); fall
+        # back to a short window just before it ("31 January 2026 deadline").
+        after = text[m.end(): m.end() + 90]
+        dm = DATE_NEAR_LABEL_RE.search(after)
+        if dm:
+            return dm.group(0).strip()
+        before = text[max(0, m.start() - 25): m.start()]
+        dm = DATE_NEAR_LABEL_RE.search(before)
         if dm:
             return dm.group(0).strip()
     return None
