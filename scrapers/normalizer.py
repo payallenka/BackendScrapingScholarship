@@ -250,6 +250,9 @@ _JUNK_POST_RE = re.compile(
     r"|\bscholarships?\s+tip\s*#?\d*\b"
     r"|^top\s+\d+\+?\s+"
     r"|^list\s+of\s+"
+    # Awardee testimonials / profiles ("Testimonial: Belgin from Türkiye")
+    r"|\btestimonial\b"
+    r"|^\s*(?:meet|read|story\s+of|profile\s+of)\b.{0,30}\bscholar\b"
     # Story / profile posts about a person who won a scholarship
     r"|\d+-year-old\b.{0,40}\b(?:wins?|won|bags?|earn|graduate)\b"
     r"|\b(?:wins?|won|bags?|earned|secured)\b.{0,50}\b(?:scholarship|fellowship)\b(?!.*program)"

@@ -53,6 +53,9 @@ class EduCanadaScraper(BaseScraper):
                     and "index" not in href.lower()
                     and "search" not in href.lower()
                     and "faq" not in href.lower()
+                    and "testimonial" not in href.lower()
+                    and "temoignage" not in href.lower()
+                    and "testimonial" not in txt.lower()
                 ):
                     full = href if href.startswith("http") else BASE_URL + href
                     if full not in seen:
