@@ -18,18 +18,27 @@ from dateutil.parser._parser import UnknownTimezoneWarning
 # Deadline label detection — used by scrapers and extract_deadline_from_soup
 # ---------------------------------------------------------------------------
 
-# Matches any common deadline label variant followed by the date value.
+# Matches any common deadline label variant. The actual date is searched for
+# separately (DATE_NEAR_LABEL_RE) so we never capture arbitrary trailing words.
 DEADLINE_LABEL_RE = re.compile(
-    r"(?:"
     r"(?:application(?:\s+submission)?\s+)?deadline"
     r"|closing\s+dates?"
     r"|due\s+dates?"
     r"|apply\s+(?:by|before|on\s+or\s+before)"
     r"|last\s+(?:date|day)(?:\s+to\s+(?:apply|submit))?"
     r"|applications?\s+(?:close|due|are\s+due|accepted\s+until|close\s+on)"
-    r"|submission\s+(?:date|deadline)"
-    r")"
-    r"[:\s]+([^\n|<]{3,80})",
+    r"|submission\s+(?:date|deadline)",
+    re.I,
+)
+
+# A real, parseable date carrying an explicit 4-digit year. Used to confirm a
+# deadline label is actually followed by a date rather than junk text.
+_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
+DATE_NEAR_LABEL_RE = re.compile(
+    rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH}\s+\d{{4}}\b"          # 15 September 2024
+    rf"|\b{_MONTH}\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}\b"       # September 15, 2024
+    rf"|\b\d{{4}}[-/]\d{{1,2}}[-/]\d{{1,2}}\b"                      # 2024-09-15
+    rf"|\b\d{{1,2}}[-/]\d{{1,2}}[-/]\d{{4}}\b",                     # 15/09/2024
     re.I,
 )
 
@@ -44,11 +53,23 @@ _DEADLINE_KEYWORD_RE = re.compile(
 
 
 def find_deadline_in_text(text: str) -> Optional[str]:
-    """Return the raw date string captured after a deadline label, or None."""
+    """Return a real date found shortly after a deadline label, or None.
+
+    Previously this returned whatever text followed the label, which produced
+    junk like "'s for" or "considered ineligible" whenever the label was not
+    actually followed by a date — leaving the deadline unparseable and the
+    scholarship indistinguishable from an open one. Now we require a parseable
+    date (with a 4-digit year) within a short window after the label, so
+    unparseable cases return None instead of polluting the deadline field.
+    """
     if not text:
         return None
-    m = DEADLINE_LABEL_RE.search(text)
-    return m.group(1).strip() if m else None
+    for m in DEADLINE_LABEL_RE.finditer(text):
+        window = text[m.end(): m.end() + 80]
+        dm = DATE_NEAR_LABEL_RE.search(window)
+        if dm:
+            return dm.group(0).strip()
+    return None
 
 
 class NormalizedScholarship(BaseModel):

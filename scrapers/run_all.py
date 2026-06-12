@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -88,6 +88,31 @@ def purge_expired_scholarships(grace_days: int = 30) -> int:
         return 0
 
 
+def purge_stale_scholarships(run_start_iso: str, scraped_count: int) -> int:
+    """Delete scholarships not refreshed during the latest full scrape.
+
+    A scholarship still listed on its source site is re-upserted with a fresh
+    scraped_at, so any row left with scraped_at < run start is no longer present
+    upstream (stale) and is removed. Guarded by scraped_count so a run where most
+    scrapers failed (e.g. sites down) does not wipe the table.
+    """
+    sb = _get_supabase()
+    existing = sb.table("scholarships").select("id", count="exact", head=True).execute().count or 0
+    if scraped_count < 20 or scraped_count < existing * 0.5:
+        logger.warning(
+            f"Skipping stale purge: only {scraped_count} scraped vs {existing} existing (run looks partial)"
+        )
+        return 0
+    try:
+        resp = sb.table("scholarships").delete().lt("scraped_at", run_start_iso).execute()
+        deleted = len(resp.data or [])
+        logger.info(f"Purged {deleted} stale scholarships (scraped_at < {run_start_iso})")
+        return deleted
+    except Exception as e:
+        logger.error(f"Failed to purge stale scholarships: {e}")
+        return 0
+
+
 def run_scraper(scraper_cls, max_pages: int):
     try:
         scraper = scraper_cls(max_pages=max_pages)
@@ -102,6 +127,7 @@ def run_all_scrapers(max_pages: int = 10, workers: int = 4, on_source_done=None)
     from scrapers.sites import ALL_SCRAPERS
     total = 0
     start = time.time()
+    run_start_iso = datetime.utcnow().isoformat()
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(run_scraper, cls, max_pages): cls for cls in ALL_SCRAPERS}
         for future in as_completed(futures):
@@ -118,6 +144,7 @@ def run_all_scrapers(max_pages: int = 10, workers: int = 4, on_source_done=None)
                     logger.info(f"{cls.__name__}: 0 scholarships returned")
             except Exception as e:
                 logger.error(f"{cls.__name__} failed: {e}")
+    purge_stale_scholarships(run_start_iso, total)
     purge_expired_scholarships()
     elapsed = time.time() - start
     logger.info(f"Done! {total} scholarships saved in {elapsed:.1f}s")
@@ -139,6 +166,7 @@ def main():
 
     total = 0
     start = time.time()
+    run_start_iso = datetime.utcnow().isoformat()
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(run_scraper, cls, args.max_pages): cls for cls in scrapers_to_run}
@@ -153,6 +181,7 @@ def main():
             except Exception as e:
                 logger.error(f"{cls.__name__} failed: {e}")
 
+    purge_stale_scholarships(run_start_iso, total)
     purge_expired_scholarships()
     elapsed = time.time() - start
     logger.info(f"\nDone! {total} scholarships saved in {elapsed:.1f}s")
