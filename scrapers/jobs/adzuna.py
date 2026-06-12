@@ -2,8 +2,14 @@
 Ingest UK visa-sponsoring job openings from the Adzuna API (free public API).
 
 Unlike the UK Sponsor Register (a directory of licensed *employers*), these are
-real vacancies with apply links. We query Adzuna for visa-sponsorship roles in
-the UK and flag each job's visa status from its own text.
+real vacancies with apply links. We query Adzuna UK for visa-sponsorship roles
+and flag each job's visa status from its own text.
+
+Adzuna's UK feed includes some overseas roles posted by UK recruiters
+("...Opportunities in Australia", "Registered Nurse - Melbourne", "Jobs in
+Canada"). These are tagged UK by Adzuna but clearly belong to another country,
+so we drop any whose title/location names a non-UK country or distinctive
+foreign city.
 """
 import logging
 import os
@@ -23,6 +29,20 @@ MAX_PAGES = 5
 RESULTS_PER_PAGE = 50
 QUERY = "visa sponsorship"
 
+# Non-UK signals. Only unambiguous country names and distinctive foreign cities
+# are listed — deliberately excluding names shared with UK places (Perth/Scotland,
+# Victoria/London, London/Ontario) to avoid dropping genuine UK jobs.
+_NON_UK_RE = re.compile(
+    r"\b(?:australia|australian|canada|canadian|india|indian|new\s+zealand|"
+    r"u\.?s\.?a|united\s+states|america|uae|dubai|abu\s+dhabi|qatar|doha|"
+    r"saudi|riyadh|jeddah|singapore|nigeria|kenya|south\s+africa|malaysia|"
+    r"hong\s+kong|china|japan|philippines|pakistan|oman|bahrain|kuwait|"
+    r"melbourne|sydney|brisbane|adelaide|tasmania|canberra|"
+    r"toronto|vancouver|mumbai|bengaluru|bangalore|hyderabad|chennai|"
+    r"auckland|wellington)\b",
+    re.I,
+)
+
 
 def fetch_adzuna_jobs():
     if not (APP_ID and APP_KEY):
@@ -30,6 +50,7 @@ def fetch_adzuna_jobs():
         return []
 
     jobs = []
+    dropped = 0
     now = datetime.utcnow().isoformat()
 
     for page in range(1, MAX_PAGES + 1):
@@ -63,23 +84,24 @@ def fetch_adzuna_jobs():
             title = re.sub(r"<[^>]+>", "", item.get("title") or "").strip()
             company = (item.get("company") or {}).get("display_name") or ""
             location = (item.get("location") or {}).get("display_name") or "United Kingdom"
+
+            # Drop overseas roles that leak into the UK feed.
+            if _NON_UK_RE.search(f"{title} {location}"):
+                dropped += 1
+                continue
+
             description = item.get("description") or ""
             apply_url = item.get("redirect_url") or ""
             salary_min = item.get("salary_min")
             salary_max = item.get("salary_max")
             category = (item.get("category") or {}).get("label")
 
-            # Adzuna employment-type fields: contract_type=permanent/contract,
-            # contract_time=full_time/part_time
             ctype = ", ".join(
                 t.replace("_", " ") for t in (item.get("contract_type"), item.get("contract_time")) if t
             ) or None
 
             tags = [t for t in [category] if t]
 
-            # Flag visa sponsorship from the job's own text (the query biases
-            # toward sponsoring roles, but the negative-context guard still
-            # rejects "no visa sponsorship" listings).
             visa = detect_visa_sponsorship(
                 title=title, description=description, tags=tags, source="adzuna"
             )
@@ -107,7 +129,7 @@ def fetch_adzuna_jobs():
         if len(items) < RESULTS_PER_PAGE:
             break
 
-    logger.info(f"Adzuna: fetched {len(jobs)} UK jobs")
+    logger.info(f"Adzuna: fetched {len(jobs)} UK jobs ({dropped} overseas roles dropped)")
     return jobs
 
 
