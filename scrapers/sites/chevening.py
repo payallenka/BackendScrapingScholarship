@@ -2,7 +2,12 @@
 from __future__ import annotations
 from typing import List
 from scrapers.base import BaseScraper
-from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
+from scrapers.normalizer import (
+    NormalizedScholarship,
+    make_scholarship,
+    find_deadline_in_text,
+    detect_open_status,
+)
 
 SITE_NAME = "Chevening Scholarship"
 BASE_URL = "https://www.chevening.org"
@@ -42,11 +47,16 @@ class CheveningScraper(BaseScraper):
     delay = 2.0
 
     def scrape(self) -> List[NormalizedScholarship]:
-        # chevening.org can timeout — try once for deadline, continue regardless
+        # chevening.org can timeout — try once for deadline + status, continue regardless.
+        # Chevening's application window is global, so the open/closed status on the
+        # main scholarships page applies to every programme.
         deadline_raw = None
+        is_open = None
         soup = self.get_soup(f"{BASE_URL}/scholarships/")
         if soup:
-            deadline_raw = find_deadline_in_text(soup.get_text(" ", strip=True))
+            page_text = soup.get_text(" ", strip=True)
+            deadline_raw = find_deadline_in_text(page_text)
+            is_open = detect_open_status(page_text)
 
         results = []
         for prog in PROGRAMS:
@@ -58,6 +68,7 @@ class CheveningScraper(BaseScraper):
                 description=prog["description"],
                 degree_levels_raw=prog["degree_levels_raw"],
                 deadline_raw=deadline_raw,
+                is_open=is_open,
                 amount="Fully Funded",
                 host_countries=["UK"],
                 tags=prog["tags"],

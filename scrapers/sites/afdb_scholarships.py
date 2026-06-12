@@ -1,8 +1,11 @@
 """African Development Bank Group Scholarships — hardcoded programs + dynamic deadline fetch."""
 from __future__ import annotations
+import logging
 from typing import List
 from scrapers.base import BaseScraper
 from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_deadline_in_text
+
+logger = logging.getLogger(__name__)
 
 SITE_NAME = "African Development Bank"
 BASE_URL = "https://www.afdb.org"
@@ -54,10 +57,13 @@ class AfDBScholarshipScraper(BaseScraper):
     delay = 2.0
 
     def scrape(self) -> List[NormalizedScholarship]:
-        deadline_raw = None
         soup = self.get_soup(f"{BASE_URL}/en/careers/scholarships")
-        if soup:
-            deadline_raw = find_deadline_in_text(soup.get_text(" ", strip=True))
+        if not soup:
+            # The scholarships page is gone/blocked (it currently 404s) — don't
+            # emit the hardcoded programmes, since their links would be dead.
+            logger.warning(f"[{self.name}] scholarships page unavailable — skipping")
+            return []
+        deadline_raw = find_deadline_in_text(soup.get_text(" ", strip=True))
 
         results = []
         for prog in PROGRAMS:

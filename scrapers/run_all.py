@@ -78,14 +78,23 @@ def purge_expired_scholarships(grace_days: int = 30) -> int:
     """
     sb = _get_supabase()
     cutoff = (date.today() - timedelta(days=grace_days)).isoformat()
+    deleted = 0
     try:
         resp = sb.table("scholarships").delete().lt("deadline", cutoff).execute()
-        deleted = len(resp.data or [])
-        logger.info(f"Purged {deleted} expired scholarships (deadline < {cutoff})")
-        return deleted
+        deleted += len(resp.data or [])
+        logger.info(f"Purged {len(resp.data or [])} expired scholarships (deadline < {cutoff})")
     except Exception as e:
         logger.error(f"Failed to purge expired scholarships: {e}")
-        return 0
+    # Also remove ones explicitly detected as closed for applications.
+    try:
+        resp = sb.table("scholarships").delete().eq("is_open", 0).execute()
+        closed = len(resp.data or [])
+        if closed:
+            logger.info(f"Purged {closed} closed scholarships (is_open=0)")
+        deleted += closed
+    except Exception as e:
+        logger.error(f"Failed to purge closed scholarships: {e}")
+    return deleted
 
 
 def purge_stale_scholarships(run_start_iso: str, scraped_count: int) -> int:

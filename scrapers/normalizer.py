@@ -566,6 +566,38 @@ def extract_org_from_title(title: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Application open/closed status
+# ---------------------------------------------------------------------------
+
+# Phrases that clearly signal a scholarship round is closed / no longer open.
+_CLOSED_STATUS_RE = re.compile(
+    r"\bclosed?\s+for\s+applications?\b"
+    r"|\bapplications?\s+(?:are\s+|is\s+|have\s+|has\s+)?(?:now\s+)?closed\b"
+    r"|\bapplications?\s+(?:are\s+)?(?:now\s+)?closed\b"
+    r"|\bnow\s+closed\b"
+    r"|\bno\s+longer\s+(?:accepting|open|available)\b"
+    r"|\bnot\s+(?:currently\s+)?accepting\s+applications?\b"
+    r"|\b(?:the\s+)?deadline\s+has\s+passed\b"
+    r"|\bapplications?\s+(?:for\s+\d{4}[–/-]?\d{0,4}\s+)?(?:are\s+|have\s+)?closed\b",
+    re.I,
+)
+
+
+def detect_open_status(text: str) -> Optional[bool]:
+    """Return False when the text clearly says applications are closed, else None.
+
+    None means "unknown" — we only ever assert *closed* on explicit evidence and
+    never assert *open*, since the absence of a closed phrase does not imply a
+    scholarship is currently accepting applications.
+    """
+    if not text:
+        return None
+    if _CLOSED_STATUS_RE.search(text):
+        return False
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Scholarship factory
 # ---------------------------------------------------------------------------
 
@@ -634,6 +666,12 @@ def make_scholarship(
     if not eligible_nationalities and description:
         eligible_nationalities = infer_eligibility(description, tags)
 
+    # Application status — honour an explicit scraper value, else detect "closed"
+    # phrasing in the title/description. None means unknown (still shown).
+    is_open = kwargs.pop("is_open", None)
+    if is_open is None:
+        is_open = detect_open_status(f"{title} {description or ''}")
+
     return NormalizedScholarship(
         id=str(uuid.uuid5(uuid.NAMESPACE_URL, source_url)),
         title=title,
@@ -648,6 +686,7 @@ def make_scholarship(
         eligible_nationalities=eligible_nationalities,
         source_url=source_url,
         source_site=source_site,
+        is_open=is_open,
         scraped_at=datetime.utcnow().isoformat(),
         **kwargs,
     )

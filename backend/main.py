@@ -305,6 +305,9 @@ def list_scholarships(
     if not include_expired:
         today = date.today().isoformat()
         query = query.or_(f"deadline.is.null,deadline.gte.{today}")
+        # Also hide ones explicitly detected as closed (is_open = 0). Unknown
+        # status (NULL) is still shown.
+        query = query.or_("is_open.is.null,is_open.eq.1")
 
     if search:
         term = search.replace("*", "").replace("%", "")

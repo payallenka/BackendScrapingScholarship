@@ -84,6 +84,21 @@ class BaseScraper(ABC):
         soup = self.get_soup(url)
         return extract_deadline_from_soup(soup) if soup else None
 
+    def _link_alive(self, url: str) -> bool:
+        """Return False only for a definite dead link (404/410).
+
+        Conservative on purpose: network errors and bot blocks (403) are treated
+        as alive so we never drop a valid scholarship over a transient hiccup.
+        """
+        if not url:
+            return False
+        base = url.split("#")[0]
+        try:
+            r = self.session.get(base, timeout=10, allow_redirects=True)
+            return r.status_code not in (404, 410)
+        except Exception:
+            return True
+
     def is_valid_scholarship(self, s: NormalizedScholarship) -> bool:
         """Return True if the scholarship has the minimum required fields and looks like a real scholarship."""
         from scrapers.normalizer import is_valid_scholarship_title
@@ -101,8 +116,13 @@ class BaseScraper(ABC):
         try:
             results = self.scrape()
             filtered = [s for s in results if self.is_valid_scholarship(s)]
-            logger.info(f"[{self.name}] Scraped {len(filtered)} valid scholarships (from {len(results)} scraped).")
-            return filtered
+            # Drop scholarships whose source page is a definite dead link (404/410).
+            alive = [s for s in filtered if self._link_alive(s.source_url)]
+            dropped = len(filtered) - len(alive)
+            if dropped:
+                logger.info(f"[{self.name}] Dropped {dropped} dead-link scholarship(s)")
+            logger.info(f"[{self.name}] Scraped {len(alive)} valid scholarships (from {len(results)} scraped).")
+            return alive
         except Exception as e:
             logger.error(f"[{self.name}] Scrape failed: {e}", exc_info=True)
             return []
