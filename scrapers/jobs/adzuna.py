@@ -1,0 +1,118 @@
+"""
+Ingest UK visa-sponsoring job openings from the Adzuna API (free public API).
+
+Unlike the UK Sponsor Register (a directory of licensed *employers*), these are
+real vacancies with apply links. We query Adzuna for visa-sponsorship roles in
+the UK and flag each job's visa status from its own text.
+"""
+import logging
+import os
+import re
+import requests
+from datetime import datetime
+
+from scrapers.normalizer import NormalizedJob, detect_visa_sponsorship
+from backend.database import upsert_jobs
+
+logger = logging.getLogger(__name__)
+
+API_URL = "https://api.adzuna.com/v1/api/jobs/gb/search"
+APP_ID = os.getenv("ADZUNA_APP_ID")
+APP_KEY = os.getenv("ADZUNA_APP_KEY")
+MAX_PAGES = 5
+RESULTS_PER_PAGE = 50
+QUERY = "visa sponsorship"
+
+
+def fetch_adzuna_jobs():
+    if not (APP_ID and APP_KEY):
+        logger.warning("Adzuna: ADZUNA_APP_ID / ADZUNA_APP_KEY not set — skipping")
+        return []
+
+    jobs = []
+    now = datetime.utcnow().isoformat()
+
+    for page in range(1, MAX_PAGES + 1):
+        try:
+            resp = requests.get(
+                f"{API_URL}/{page}",
+                params={
+                    "app_id": APP_ID,
+                    "app_key": APP_KEY,
+                    "results_per_page": RESULTS_PER_PAGE,
+                    "what": QUERY,
+                    "content-type": "application/json",
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"Adzuna page {page} failed: {e}")
+            break
+
+        items = data.get("results", [])
+        if not items:
+            break
+
+        for item in items:
+            job_id = item.get("id")
+            if not job_id:
+                continue
+
+            title = re.sub(r"<[^>]+>", "", item.get("title") or "").strip()
+            company = (item.get("company") or {}).get("display_name") or ""
+            location = (item.get("location") or {}).get("display_name") or "United Kingdom"
+            description = item.get("description") or ""
+            apply_url = item.get("redirect_url") or ""
+            salary_min = item.get("salary_min")
+            salary_max = item.get("salary_max")
+            category = (item.get("category") or {}).get("label")
+
+            # Adzuna employment-type fields: contract_type=permanent/contract,
+            # contract_time=full_time/part_time
+            ctype = ", ".join(
+                t.replace("_", " ") for t in (item.get("contract_type"), item.get("contract_time")) if t
+            ) or None
+
+            tags = [t for t in [category] if t]
+
+            # Flag visa sponsorship from the job's own text (the query biases
+            # toward sponsoring roles, but the negative-context guard still
+            # rejects "no visa sponsorship" listings).
+            visa = detect_visa_sponsorship(
+                title=title, description=description, tags=tags, source="adzuna"
+            )
+
+            jobs.append(NormalizedJob(
+                id=f"adzuna_{job_id}",
+                title=title,
+                company=company,
+                location=location,
+                contract_type=ctype,
+                salary_min=salary_min,
+                salary_max=salary_max,
+                currency="GBP" if (salary_min or salary_max) else None,
+                description=description,
+                tags=tags,
+                source="adzuna",
+                apply_url=apply_url,
+                posted_at=item.get("created") or None,
+                ingested_at=now,
+                logo_url=None,
+                visa_sponsored=visa,
+                extra_data=None,
+            ))
+
+        if len(items) < RESULTS_PER_PAGE:
+            break
+
+    logger.info(f"Adzuna: fetched {len(jobs)} UK jobs")
+    return jobs
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    jobs = fetch_adzuna_jobs()
+    upsert_jobs(jobs)
+    print(f"Ingested {len(jobs)} jobs from Adzuna.")
