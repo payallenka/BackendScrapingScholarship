@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -410,8 +410,25 @@ def get_stats():
     )
     last_scraped = latest_resp.data[0]["scraped_at"] if latest_resp.data else None
 
+    # Headline metrics: Indexed / Open / Closing in 7 days.
+    today = date.today().isoformat()
+    week = (date.today() + timedelta(days=7)).isoformat()
+    # Open = a deadline that hasn't passed and not explicitly closed.
+    open_count = (
+        sb.table("scholarships").select("*", count="exact", head=True)
+        .gte("deadline", today).or_("is_open.is.null,is_open.eq.1").execute().count or 0
+    )
+    closing_soon = (
+        sb.table("scholarships").select("*", count="exact", head=True)
+        .gte("deadline", today).lte("deadline", week)
+        .or_("is_open.is.null,is_open.eq.1").execute().count or 0
+    )
+
     return {
         "total": total,
+        "indexed": total,
+        "open": open_count,
+        "closing_soon": closing_soon,
         "with_deadline": with_deadline,
         "with_amount": with_amount,
         "last_scraped": last_scraped,
