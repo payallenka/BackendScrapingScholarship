@@ -8,6 +8,7 @@ from scrapers.sites.campusfrance import CampusFranceScraper
 from scrapers.sites.bgf_france import BGFFranceScraper
 from scrapers.sites.afdb_scholarships import AfDBScholarshipScraper
 from scrapers.sites.mo_ibrahim import MoIbrahimScraper
+from scrapers.sites.afterschoolafrica import AfterSchoolAfricaScraper
 
 ALL_SCRAPERS = [
     FulbrightScraper,
@@ -20,4 +21,5 @@ ALL_SCRAPERS = [
     BGFFranceScraper,
     AfDBScholarshipScraper,
     MoIbrahimScraper,
+    AfterSchoolAfricaScraper,
 ]
