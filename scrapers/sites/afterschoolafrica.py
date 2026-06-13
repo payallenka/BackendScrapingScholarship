@@ -24,6 +24,21 @@ PER_PAGE = 100          # WordPress REST API max
 # the deep archive is years of closed cycles.
 MAX_API_PAGES = 4
 
+# Only keep scholarships hosted in these four countries.
+TARGET_COUNTRIES = {
+    "United States": re.compile(
+        r"\bunited states\b|\bu\.s\.a?\.?\b|\busa\b|\bamericas?\b|\bamerican\b", re.I),
+    "United Kingdom": re.compile(
+        r"\bunited kingdom\b|\bu\.k\.?\b|\bbritain\b|\bbritish\b|\bengland\b"
+        r"|\bscotland\b|\bwales\b|\bchevening\b", re.I),
+    "Canada": re.compile(r"\bcanada\b|\bcanadian\b|\bquebec\b|\bontario\b", re.I),
+    "France": re.compile(r"\bfrance\b|\bfrench\b|\beiffel\b|\bsorbonne\b|\bparis\b", re.I),
+}
+
+
+def _detect_countries(text: str) -> list[str]:
+    return [c for c, pat in TARGET_COUNTRIES.items() if pat.search(text)]
+
 
 def _strip_html(s: str) -> str:
     s = re.sub(r"<[^>]+>", " ", s or "")
@@ -83,8 +98,13 @@ class AfterSchoolAfricaScraper(BaseScraper):
                     continue
                 content = _strip_html(p.get("content", {}).get("rendered", ""))
                 excerpt = _strip_html(p.get("excerpt", {}).get("rendered", "")) or content[:400]
-                deadline_raw = find_deadline_in_text(content)
 
+                # Only keep scholarships hosted in the US / UK / Canada / France.
+                countries = _detect_countries(f"{title} {content}")
+                if not countries:
+                    continue
+
+                deadline_raw = find_deadline_in_text(content)
                 amount = None
                 m = re.search(r"fully funded|full scholarship|\$[\d,]+|€[\d,]+|£[\d,]+", content, re.I)
                 if m:
@@ -98,6 +118,7 @@ class AfterSchoolAfricaScraper(BaseScraper):
                     degree_levels_raw=f"{title} {content[:300]}",
                     deadline_raw=deadline_raw,
                     amount=amount,
+                    host_countries=countries,
                     tags=["After School Africa", "Africa"],
                 ))
 
