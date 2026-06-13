@@ -18,7 +18,8 @@ BASE_URL = "https://www.afterschoolafrica.com"
 API = f"{BASE_URL}/wp-json/wp/v2"
 CATEGORY_SLUG = "scholarship"
 CATEGORY_ID_FALLBACK = 13
-PER_PAGE = 30
+PER_PAGE = 100          # WordPress REST API max
+MAX_API_PAGES = 60      # up to ~6000 posts — covers the whole scholarship archive
 
 
 def _strip_html(s: str) -> str:
@@ -30,7 +31,8 @@ def _strip_html(s: str) -> str:
 class AfterSchoolAfricaScraper(BaseScraper):
     name = "afterschoolafrica"
     base_url = BASE_URL
-    delay = 1.0
+    delay = 0.4  # it's a JSON API, so we can poll faster than HTML scraping
+    check_links = False  # URLs come from the WP API and are known-valid
 
     def _category_id(self) -> int:
         cats = self.get_json(f"{API}/categories", params={"slug": CATEGORY_SLUG})
@@ -42,7 +44,10 @@ class AfterSchoolAfricaScraper(BaseScraper):
         results = []
         cid = self._category_id()
 
-        for page in range(1, self.max_pages + 1):
+        # Fetch the full scholarship archive (the cheap JSON API lets us paginate
+        # deep), not just the most recent page — independent of the small global
+        # max_pages used for slow HTML scrapers.
+        for page in range(1, MAX_API_PAGES + 1):
             posts = self.get_json(
                 f"{API}/posts",
                 params={

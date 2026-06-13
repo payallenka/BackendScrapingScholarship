@@ -40,6 +40,10 @@ class BaseScraper(ABC):
     name: str = "base"
     base_url: str = ""
     delay: float = 1.5  # seconds between requests
+    # Per-URL dead-link verification (one HTTP request per scholarship). Disable
+    # for sources whose URLs come from a trusted API and are known-valid, where
+    # checking thousands of links would be prohibitively slow.
+    check_links: bool = True
 
     def __init__(self, max_pages: int = 10):
         self.max_pages = max_pages
@@ -172,10 +176,13 @@ class BaseScraper(ABC):
             results = self.scrape()
             filtered = [s for s in results if self.is_valid_scholarship(s)]
             # Drop scholarships whose source page is a definite dead link (404/410).
-            alive = [s for s in filtered if self._link_alive(s.source_url)]
-            dropped = len(filtered) - len(alive)
-            if dropped:
-                logger.info(f"[{self.name}] Dropped {dropped} dead-link scholarship(s)")
+            if self.check_links:
+                alive = [s for s in filtered if self._link_alive(s.source_url)]
+                dropped = len(filtered) - len(alive)
+                if dropped:
+                    logger.info(f"[{self.name}] Dropped {dropped} dead-link scholarship(s)")
+            else:
+                alive = filtered
             logger.info(f"[{self.name}] Scraped {len(alive)} valid scholarships (from {len(results)} scraped).")
             return alive
         except Exception as e:
