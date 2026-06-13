@@ -46,8 +46,12 @@ class AfterSchoolAfricaScraper(BaseScraper):
 
         # Fetch the full scholarship archive (the cheap JSON API lets us paginate
         # deep), not just the most recent page — independent of the small global
-        # max_pages used for slow HTML scrapers.
-        for page in range(1, MAX_API_PAGES + 1):
+        # max_pages used for slow HTML scrapers. A transient failure (rate limit /
+        # timeout) on one page must not truncate the whole archive, so retry a
+        # page a few times before giving up.
+        page = 1
+        page_fails = 0
+        while page <= MAX_API_PAGES:
             posts = self.get_json(
                 f"{API}/posts",
                 params={
@@ -59,8 +63,16 @@ class AfterSchoolAfricaScraper(BaseScraper):
                     "_fields": "id,link,title,excerpt,content,date",
                 },
             )
-            if not isinstance(posts, list) or not posts:
-                break
+            if not isinstance(posts, list):
+                # transient error — retry the same page up to 3 times
+                page_fails += 1
+                if page_fails >= 3:
+                    break
+                continue
+            page_fails = 0
+            if not posts:
+                break  # genuine end of the archive
+            page += 1
 
             for p in posts:
                 title = _strip_html(p.get("title", {}).get("rendered", ""))
