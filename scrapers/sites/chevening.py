@@ -1,5 +1,6 @@
 """Chevening Scholarship — hardcoded programs + dynamic deadline fetch."""
 from __future__ import annotations
+from datetime import date
 from typing import List
 from scrapers.base import BaseScraper
 from scrapers.normalizer import (
@@ -57,6 +58,13 @@ class CheveningScraper(BaseScraper):
             page_text = soup.get_text(" ", strip=True)
             deadline_raw = find_deadline_in_text(page_text)
             is_open = detect_open_status(page_text)
+
+        # chevening.org is frequently unreachable and its open/closed status lives
+        # on per-country pages, so the page check often yields nothing. Fall back
+        # to the programme's well-known annual window — applications open in early
+        # August and close in early November — and treat other months as closed.
+        if is_open is None and date.today().month not in (8, 9, 10):
+            is_open = False
 
         results = []
         for prog in PROGRAMS:

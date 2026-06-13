@@ -113,17 +113,19 @@ class BGFFranceScraper(BaseScraper):
             seen.add(url)
 
             detail = self.get_soup(url)
-            d_desc, d_dl = None, None
+            if not detail:
+                # Page unreachable (404 / SSL / timeout) — skip rather than emit a
+                # scholarship that links to a dead page.
+                continue
+
+            text = detail.get_text(" ", strip=True)
+            d_dl = find_deadline_in_text(text)
             d_title = fallback_title
-            if detail:
-                text = detail.get_text(" ", strip=True)
-                d_dl = find_deadline_in_text(text)
-                h1 = detail.find("h1")
-                if h1 and len(h1.get_text(strip=True)) > 8:
-                    d_title = h1.get_text(strip=True)
-                ps = detail.find_all("p")
-                if ps:
-                    d_desc = " ".join(p.get_text(strip=True) for p in ps[:4])[:600]
+            h1 = detail.find("h1")
+            if h1 and len(h1.get_text(strip=True)) > 8:
+                d_title = h1.get_text(strip=True)
+            ps = detail.find_all("p")
+            d_desc = " ".join(p.get_text(strip=True) for p in ps[:4])[:600] if ps else None
 
             results.append(make_scholarship(
                 title=d_title,
