@@ -33,6 +33,18 @@ def row_to_dict(row: dict) -> dict:
 def upsert_jobs(jobs):
     if not jobs:
         return
+    # Collapse the same role posted across many cities into one listing — sources
+    # like RemoteOK/Adzuna repeat a job per location, which floods the feed with
+    # identical cards. Keep the first occurrence of each (company, title).
+    deduped, seen = [], set()
+    for j in jobs:
+        key = ((j.company or "").strip().lower(), (j.title or "").strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(j)
+    jobs = deduped
+
     sb = get_supabase()
     rows = [
         {
