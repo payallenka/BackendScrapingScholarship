@@ -154,7 +154,8 @@ def run_all_scrapers(max_pages: int = 10, workers: int = 4, on_source_done=None)
             except Exception as e:
                 logger.error(f"{cls.__name__} failed: {e}")
     purge_stale_scholarships(run_start_iso, total)
-    purge_expired_scholarships()
+    # Expired/closed scholarships are kept (the UI tags them "Deadline over" /
+    # closed) rather than purged, so they remain visible until refreshed.
     elapsed = time.time() - start
     logger.info(f"Done! {total} scholarships saved in {elapsed:.1f}s")
     return total
@@ -191,7 +192,8 @@ def main():
                 logger.error(f"{cls.__name__} failed: {e}")
 
     purge_stale_scholarships(run_start_iso, total)
-    purge_expired_scholarships()
+    # Expired/closed scholarships are kept (the UI tags them "Deadline over" /
+    # closed) rather than purged, so they remain visible until refreshed.
     elapsed = time.time() - start
     logger.info(f"\nDone! {total} scholarships saved in {elapsed:.1f}s")
 
