@@ -264,6 +264,17 @@ _JUNK_POST_RE = re.compile(
     r"|\bscholarships?\s+tip\s*#?\d*\b"
     r"|^top\s+\d+\+?\s+"
     r"|^list\s+of\s+"
+    r"|\blist\s+of\s+scholarships?\b"
+    r"|^\d{4}\s+list\s+of\b"
+    # Advice / guide / news / interview articles (not an actual scholarship)
+    r"|\bcommon\s+problems?\b"
+    r"|\bhow\s+to\s+(?:study|fix|avoid|find|choose|prepare)\b"
+    r"|\binterview\s+with\b"
+    r"|\bguest\s+(?:article|post)\b"
+    r"|\bout\s+of\s+\d+\s+(?:candidates?|applicants?)\b"
+    r"|\b\d+\s+(?:candidates?|applicants?)\s+(?:will\s+)?qualify\b"
+    r"|\bstep[-\s]?by[-\s]?step\s+guide\b"
+    r"|\bthings?\s+(?:you|to)\s+(?:should\s+)?know\b"
     # Awardee testimonials / profiles ("Testimonial: Belgin from Türkiye")
     r"|\btestimonial\b"
     r"|^\s*(?:meet|read|story\s+of|profile\s+of)\b.{0,30}\bscholar\b"
