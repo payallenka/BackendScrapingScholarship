@@ -40,6 +40,19 @@ def _detect_countries(text: str) -> list[str]:
     return [c for c, pat in TARGET_COUNTRIES.items() if pat.search(text)]
 
 
+# Posts embed a "Related:" / "You may also like" block of links to OTHER
+# scholarships (with their own amounts/deadlines). Cut it so we don't extract a
+# neighbouring scholarship's "$50 stipend" or deadline as if it were this one's.
+_NOISE_CUT_RE = re.compile(
+    r"\b(?:related|you may also like|see also|recommended|read also|don'?t miss)\s*:",
+    re.I,
+)
+
+
+def _clean_content(content: str) -> str:
+    return _NOISE_CUT_RE.split(content, 1)[0]
+
+
 def _strip_html(s: str) -> str:
     s = re.sub(r"<[^>]+>", " ", s or "")
     s = html_lib.unescape(s)
@@ -96,7 +109,7 @@ class AfterSchoolAfricaScraper(BaseScraper):
                 title = _strip_html(p.get("title", {}).get("rendered", ""))
                 if not title:
                     continue
-                content = _strip_html(p.get("content", {}).get("rendered", ""))
+                content = _clean_content(_strip_html(p.get("content", {}).get("rendered", "")))
                 excerpt = _strip_html(p.get("excerpt", {}).get("rendered", "")) or content[:400]
 
                 # Only keep scholarships hosted in the US / UK / Canada / France.
@@ -105,8 +118,16 @@ class AfterSchoolAfricaScraper(BaseScraper):
                     continue
 
                 deadline_raw = find_deadline_in_text(content)
+                # Prefer funding-type wording; only accept $ figures of $100+ so a
+                # stray "$50" application fee isn't shown as the award amount.
                 amount = None
-                m = re.search(r"fully funded|full scholarship|\$[\d,]+|€[\d,]+|£[\d,]+", content, re.I)
+                m = re.search(
+                    r"fully funded|full tuition|tuition (?:waiver|coverage)"
+                    r"|\d{1,3}%\s*(?:tuition|funding|coverage|scholarship)"
+                    r"|partial(?:ly)?\s*fund\w*|full scholarship"
+                    r"|(?:\$|€|£|US\$)\s?\d[\d,]{2,}(?:\.\d+)?",
+                    content, re.I,
+                )
                 if m:
                     amount = m.group(0)
 
