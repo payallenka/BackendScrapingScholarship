@@ -115,10 +115,15 @@ INHERENT_VISA_SOURCES = {"uk_sponsor_register"}
 # sponsorship", "must already have the right to work" — these mean NO sponsorship
 # and must override any positive keyword.
 _VISA_NEG_RE = re.compile(
+    # Negation BEFORE "sponsor": "no/cannot/unable to ... sponsor"
     r"\b(?:no|not|cannot|can'?t|unable\s+to|do(?:es)?\s+not|don'?t|without|"
     r"will\s+not|won'?t|are\s+not\s+able\s+to|are\s+unable\s+to|"
     r"is\s+not\s+(?:available|offered|provided))\b[^.!?\n]{0,40}\bsponsor"
-    r"|must\s+(?:already\s+)?have\s+(?:the\s+)?(?:right\s+to\s+work|existing\s+right)"
+    # Negation AFTER "sponsor": "(visa) sponsorship is not available/offered/..."
+    r"|\bsponsor(?:ship|ed|ing)?\b[^.!?\n]{0,25}\b(?:is|are|will\s+be|can\s+be)?\s*not\s+(?:be\s+)?"
+    r"(?:available|offered|provided|possible|considered|on\s+offer|an?\s+option)"
+    # Applicant must already have the right to work (i.e. no sponsorship)
+    r"|must\s+(?:already\s+)?(?:have|hold)\s+(?:the\s+|a\s+|full\s+)*(?:right\s+to\s+work|existing\s+right)"
     r"|no\s+(?:visa\s+)?sponsorship",
     re.I,
 )
