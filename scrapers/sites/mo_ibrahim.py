@@ -38,8 +38,7 @@ class MoIbrahimScraper(BaseScraper):
             if not soup:
                 continue
 
-            full_text = soup.get_text(" ", strip=True)
-            deadline_raw = find_deadline_in_text(full_text)
+            deadline_raw = self.crawl_deadline(soup, url)
 
             h1 = soup.find("h1")
             title = h1.get_text(strip=True) if h1 else fallback_title
