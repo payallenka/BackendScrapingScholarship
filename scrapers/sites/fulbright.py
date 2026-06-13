@@ -35,7 +35,7 @@ class FulbrightScraper(BaseScraper):
 
             if soup:
                 text = soup.get_text(" ", strip=True)
-                deadline_raw = find_deadline_in_text(text) or global_deadline
+                deadline_raw = self.crawl_deadline(soup, url) or global_deadline
                 # Some pages have two h1s; pick the one that isn't a site-wide header
                 h1s = soup.find_all("h1")
                 title = fallback_title

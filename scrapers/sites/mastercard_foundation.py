@@ -82,8 +82,7 @@ class MasterCardFoundationScraper(BaseScraper):
             detail = self.get_soup(partner_url)
             desc, dl = None, global_deadline
             if detail:
-                text = detail.get_text(" ", strip=True)
-                dl = find_deadline_in_text(text) or global_deadline
+                dl = self.crawl_deadline(detail, partner_url) or global_deadline
                 ps = detail.find_all("p")
                 if ps:
                     desc = " ".join(p.get_text(strip=True) for p in ps[:4])[:600]

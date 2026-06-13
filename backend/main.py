@@ -288,7 +288,8 @@ def list_scholarships(
     deadline_before: Optional[str] = Query(None, description="YYYY-MM-DD"),
     deadline_after: Optional[str] = Query(None, description="YYYY-MM-DD"),
     has_amount: bool = Query(False),
-    include_expired: bool = Query(False, description="Include scholarships whose deadline has already passed"),
+    verified_only: bool = Query(True, description="Only show scholarships with a confirmed future deadline (hides undated/unverifiable)"),
+    include_expired: bool = Query(False, description="With verified_only=false, also include past-deadline scholarships"),
     sort: str = Query("scraped_at", description="scraped_at|deadline|title"),
     order: str = Query("desc"),
     limit: int = Query(24, le=100),
@@ -300,13 +301,16 @@ def list_scholarships(
 
     query = sb.table("scholarships").select("*", count="exact")
 
-    # By default hide expired scholarships (deadline in the past). Undated
-    # scholarships (deadline NULL) are kept, since many sources never publish one.
-    if not include_expired:
-        today = date.today().isoformat()
+    today = date.today().isoformat()
+    if verified_only:
+        # Only scholarships we can confirm are still open: a deadline that hasn't
+        # passed (NULL/undated is excluded — we can't verify those are active),
+        # and not explicitly marked closed.
+        query = query.gte("deadline", today)
+        query = query.or_("is_open.is.null,is_open.eq.1")
+    elif not include_expired:
+        # Looser view: keep undated ones, just hide past-deadline + closed.
         query = query.or_(f"deadline.is.null,deadline.gte.{today}")
-        # Also hide ones explicitly detected as closed (is_open = 0). Unknown
-        # status (NULL) is still shown.
         query = query.or_("is_open.is.null,is_open.eq.1")
 
     if search:

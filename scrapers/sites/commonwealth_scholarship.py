@@ -58,8 +58,7 @@ class CommonwealthScholarshipScraper(BaseScraper):
             description, deadline_raw = None, None
             detail = self.get_soup(href)
             if detail:
-                text = detail.get_text(" ", strip=True)
-                deadline_raw = find_deadline_in_text(text)
+                deadline_raw = self.crawl_deadline(detail, href)
                 paras = detail.find_all("p")
                 if paras:
                     description = " ".join(p.get_text(strip=True) for p in paras[:4])[:600]

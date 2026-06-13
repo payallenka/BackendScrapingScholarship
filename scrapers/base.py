@@ -3,10 +3,12 @@ Base scraper class with session management, rate limiting, and retry logic.
 """
 from __future__ import annotations
 import logging
+import re
 import time
 import random
 from abc import ABC, abstractmethod
 from typing import List, Optional
+from urllib.parse import urljoin
 import requests
 from requests.adapters import HTTPAdapter, Retry
 from bs4 import BeautifulSoup
@@ -14,6 +16,14 @@ from bs4 import BeautifulSoup
 from scrapers.normalizer import NormalizedScholarship
 
 logger = logging.getLogger(__name__)
+
+# Links likely to carry the application deadline: "how to apply", "key/important
+# dates", "when to apply", "timeline", "eligibility", and the apply button itself.
+_DEADLINE_LINK_RE = re.compile(
+    r"how.?to.?apply|\bapply\b|deadline|key.?dates?|important.?dates?"
+    r"|when.?to.?apply|timeline|eligib|application|\bdates?\b",
+    re.I,
+)
 
 
 HEADERS = {
@@ -83,6 +93,51 @@ class BaseScraper(ABC):
         from scrapers.normalizer import extract_deadline_from_soup
         soup = self.get_soup(url)
         return extract_deadline_from_soup(soup) if soup else None
+
+    def crawl_deadline(self, soup: Optional[BeautifulSoup], page_url: str, max_links: int = 6) -> Optional[str]:
+        """Find an ISO deadline on this page or a linked sub-page / apply page.
+
+        Checks structured elements and full page text first (the latter includes
+        collapsed accordion/dropdown content, which is present in the HTML), then
+        follows up to ``max_links`` promising links — "how to apply", "key dates",
+        and the apply button — and checks each of those the same way. Returns the
+        first ISO date found, or None.
+        """
+        from scrapers.normalizer import (
+            extract_deadline_from_soup,
+            find_deadline_in_text,
+            parse_deadline,
+        )
+        if not soup:
+            return None
+
+        def _from(s: Optional[BeautifulSoup]) -> Optional[str]:
+            if not s:
+                return None
+            d = extract_deadline_from_soup(s)
+            if d:
+                return d
+            raw = find_deadline_in_text(s.get_text(" ", strip=True))
+            return parse_deadline(raw) if raw else None
+
+        d = _from(soup)
+        if d:
+            return d
+
+        base = page_url.split("#")[0]
+        seen, candidates = set(), []
+        for a in soup.find_all("a", href=True):
+            if _DEADLINE_LINK_RE.search(a["href"]) or _DEADLINE_LINK_RE.search(a.get_text(" ", strip=True)):
+                full = urljoin(page_url, a["href"])
+                if full.split("#")[0] != base and full not in seen:
+                    seen.add(full)
+                    candidates.append(full)
+
+        for link in candidates[:max_links]:
+            d = _from(self.get_soup(link))
+            if d:
+                return d
+        return None
 
     def _link_alive(self, url: str) -> bool:
         """Return False only for a definite dead link (404/410).
