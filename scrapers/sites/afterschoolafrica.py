@@ -53,6 +53,31 @@ def _clean_content(content: str) -> str:
     return _NOISE_CUT_RE.split(content, 1)[0]
 
 
+_MONEY = r"(?:US\$|\$|€|£|USD|EUR|GBP)\s?\d[\d,]*(?:\.\d+)?\s*(?:million|billion)?"
+# Match an award amount: funding-type wording, OR a currency figure that has
+# award context next to it — so market sizes / salaries / fees ("$7.32 billion
+# market", "$50 application fee") are NOT mistaken for the scholarship's value.
+_AMOUNT_RE = re.compile(
+    r"fully funded|full tuition|tuition (?:waiver|coverage)"
+    r"|\d{1,3}%\s*(?:tuition|funding|coverage|scholarship)"
+    r"|partial(?:ly)?\s*fund\w*|full scholarship"
+    rf"|(?:worth|valued at|award(?:ed)?\s+of|grant of|stipend of|prize of|"
+    rf"bursary of|scholarship of|up to|receives?|covers?|provides?)\s+{_MONEY}"
+    rf"|{_MONEY}\s*(?:per\s+(?:year|annum|month|semester)|annually|scholarship|"
+    rf"grant|award|stipend|bursary|prize|in\s+(?:funding|scholarships?|prizes?)|towards)",
+    re.I,
+)
+_MONEY_RE = re.compile(_MONEY, re.I)
+
+
+def _extract_amount(content: str):
+    m = _AMOUNT_RE.search(content)
+    if not m:
+        return None
+    money = _MONEY_RE.search(m.group(0))      # keep just the figure, drop context words
+    return (money.group(0) if money else m.group(0)).strip()
+
+
 def _strip_html(s: str) -> str:
     s = re.sub(r"<[^>]+>", " ", s or "")
     s = html_lib.unescape(s)
@@ -118,18 +143,7 @@ class AfterSchoolAfricaScraper(BaseScraper):
                     continue
 
                 deadline_raw = find_deadline_in_text(content)
-                # Prefer funding-type wording; only accept $ figures of $100+ so a
-                # stray "$50" application fee isn't shown as the award amount.
-                amount = None
-                m = re.search(
-                    r"fully funded|full tuition|tuition (?:waiver|coverage)"
-                    r"|\d{1,3}%\s*(?:tuition|funding|coverage|scholarship)"
-                    r"|partial(?:ly)?\s*fund\w*|full scholarship"
-                    r"|(?:\$|€|£|US\$)\s?\d[\d,]{2,}(?:\.\d+)?",
-                    content, re.I,
-                )
-                if m:
-                    amount = m.group(0)
+                amount = _extract_amount(content)
 
                 results.append(make_scholarship(
                     title=title,
