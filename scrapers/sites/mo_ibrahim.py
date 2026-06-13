@@ -70,6 +70,9 @@ class MoIbrahimScraper(BaseScraper):
                     for keyword, (sub_title, sub_degree) in SCHOLARSHIP_SECTIONS.items():
                         if keyword in h3_text and sub_title not in seen:
                             seen.add(sub_title)
+                            # Unique source_url per sub-scholarship so each gets a
+                            # distinct id (id is derived from source_url).
+                            sub_url = f"{url}#{keyword.replace(' ', '-')}"
                             # Collect paragraphs following this h3
                             sub_paras = []
                             for sib in h3.find_next_siblings():
@@ -81,7 +84,7 @@ class MoIbrahimScraper(BaseScraper):
 
                             results.append(make_scholarship(
                                 title=sub_title,
-                                source_url=url,
+                                source_url=sub_url,
                                 source_site=SITE_NAME,
                                 organization="Mo Ibrahim Foundation",
                                 description=sub_desc,

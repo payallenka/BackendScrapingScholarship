@@ -67,6 +67,10 @@ def upsert_scholarships(scholarships):
         }
         for s in scholarships
     ]
+    # Dedupe by id (keep last) — Postgres rejects an upsert batch that contains
+    # the same conflict key twice ("ON CONFLICT DO UPDATE cannot affect row a
+    # second time"), which would otherwise drop a whole source's batch.
+    rows = list({r["id"]: r for r in rows}.values())
     sb.table("scholarships").upsert(rows, on_conflict="id").execute()
 
 

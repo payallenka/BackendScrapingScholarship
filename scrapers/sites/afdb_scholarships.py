@@ -57,13 +57,11 @@ class AfDBScholarshipScraper(BaseScraper):
     delay = 2.0
 
     def scrape(self) -> List[NormalizedScholarship]:
+        # AfDB blocks scrapers site-wide (HTTP 403) but the pages are valid for
+        # users, so still emit these well-known programmes; only the deadline
+        # can't be read. (_link_alive treats 403 as alive, so they aren't dropped.)
         soup = self.get_soup(f"{BASE_URL}/en/careers/scholarships")
-        if not soup:
-            # The scholarships page is gone/blocked (it currently 404s) — don't
-            # emit the hardcoded programmes, since their links would be dead.
-            logger.warning(f"[{self.name}] scholarships page unavailable — skipping")
-            return []
-        deadline_raw = find_deadline_in_text(soup.get_text(" ", strip=True))
+        deadline_raw = find_deadline_in_text(soup.get_text(" ", strip=True)) if soup else None
 
         results = []
         for prog in PROGRAMS:

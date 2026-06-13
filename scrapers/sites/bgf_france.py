@@ -6,24 +6,19 @@ from scrapers.normalizer import NormalizedScholarship, make_scholarship, find_de
 
 SITE_NAME = "French Gov Scholarship (BGF)"
 BASE_URL = "https://www.diplomatie.gouv.fr"
-SCHOLARSHIPS_URL = (
-    f"{BASE_URL}/en/coming-to-france/studying-in-france/finance-your-studies-scholarships/"
-)
+# Try several entry points — the old deep path connection-refuses; the
+# foreign-policy scholarships page currently works. First one that loads wins.
+SCHOLARSHIPS_URLS = [
+    f"{BASE_URL}/en/french-foreign-policy/attractiveness-and-france-s-influence/scholarships/",
+    f"{BASE_URL}/en/coming-to-france/studying-in-france/finance-your-studies-scholarships/",
+    f"{BASE_URL}/en/",
+]
 CAMPUSFRANCE_BASE = "https://www.campusfrance.org"
 
-# Additional French government scholarship pages (distinct from CampusFrance scraper)
-EXTRA_PROGRAMS = [
-    (
-        "https://aefe.gouv.fr/en/aefe/implementing-ministry-europe-and-foreign-affairs/france-excellence-major-scholarship-program",
-        "France Excellence Major Scholarship Program (AEFE)",
-        "masters",
-    ),
-    (
-        "https://www.campusbourses.campusfrance.org/fria/bourse",
-        "Campus Bourses – French Government Scholarship Catalog",
-        "undergraduate masters phd",
-    ),
-]
+# Extra hardcoded programme pages. The previous two (AEFE, Campus Bourses) are
+# dead (404 / SSL-broken) and were removed; the main scholarships page above is
+# the reliable source now.
+EXTRA_PROGRAMS = []
 
 SCHOLARSHIP_KEYWORDS = (
     "scholarship", "bourse", "grant", "fellowship", "eiffel", "mopga",
@@ -40,19 +35,24 @@ class BGFFranceScraper(BaseScraper):
         results = []
         seen = set()
 
-        # --- diplomatie.gouv.fr main scholarships page ---
-        soup = self.get_soup(SCHOLARSHIPS_URL)
+        # --- diplomatie.gouv.fr main scholarships page (try entry points in order) ---
+        soup, scholarships_url = None, SCHOLARSHIPS_URLS[0]
+        for candidate in SCHOLARSHIPS_URLS:
+            soup = self.get_soup(candidate)
+            if soup:
+                scholarships_url = candidate
+                break
         if soup:
-            full_text = soup.get_text(" ", strip=True)
-            deadline_raw = find_deadline_in_text(full_text)
-            h1 = soup.find("h1")
-            title = h1.get_text(strip=True) if h1 else "French Government Scholarships (BGF)"
+            deadline_raw = self.crawl_deadline(soup, scholarships_url)
+            # diplomatie.gouv.fr's <h1> is the generic site header ("The Ministry
+            # in action"), so use a fixed, meaningful programme title.
+            title = "French Government Scholarship (BGF)"
             paras = soup.find_all("p")
             description = " ".join(p.get_text(strip=True) for p in paras[:4])[:600] if paras else None
 
             results.append(make_scholarship(
-                title=title or "French Government Scholarships (BGF)",
-                source_url=SCHOLARSHIPS_URL,
+                title=title,
+                source_url=scholarships_url,
                 source_site=SITE_NAME,
                 organization="French Ministry for Europe and Foreign Affairs",
                 description=description,
@@ -62,7 +62,7 @@ class BGFFranceScraper(BaseScraper):
                 host_countries=["France"],
                 tags=["BGF", "French government", "France", "bourse", "embassy"],
             ))
-            seen.add(SCHOLARSHIPS_URL)
+            seen.add(scholarships_url)
 
             # Follow scholarship sub-links on the same domain
             for a in soup.find_all("a", href=True):
@@ -77,7 +77,7 @@ class BGFFranceScraper(BaseScraper):
                     and "diplomat" not in href.lower()
                 ):
                     full = href if href.startswith("http") else BASE_URL + href
-                    if full in seen or full == SCHOLARSHIPS_URL:
+                    if full in seen or full == scholarships_url:
                         continue
                     seen.add(full)
 
