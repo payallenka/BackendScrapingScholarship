@@ -175,6 +175,7 @@ def list_jobs(
         query = query.or_(",".join(f"title.ilike.*{kw}*" for kw in kws))
 
     query = query.order(sort_col, desc=desc, nullsfirst=False)
+    query = query.order("id", desc=False)  # stable tiebreaker so offset pages don't overlap
     query = query.range(offset, offset + limit - 1)
 
     response = query.execute()
