@@ -54,28 +54,46 @@ def _clean_content(content: str) -> str:
 
 
 _MONEY = r"(?:US\$|\$|€|£|USD|EUR|GBP)\s?\d[\d,]*(?:\.\d+)?\s*(?:million|billion)?"
-# Match an award amount: funding-type wording, OR a currency figure that has
-# award context next to it — so market sizes / salaries / fees ("$7.32 billion
-# market", "$50 application fee") are NOT mistaken for the scholarship's value.
-_AMOUNT_RE = re.compile(
+_MONEY_RE = re.compile(_MONEY, re.I)
+
+# High-confidence funding-type wording (always preferred).
+_FUNDING_RE = re.compile(
     r"fully funded|full tuition|tuition (?:waiver|coverage)"
     r"|\d{1,3}%\s*(?:tuition|funding|coverage|scholarship)"
-    r"|partial(?:ly)?\s*fund\w*|full scholarship"
-    rf"|(?:worth|valued at|award(?:ed)?\s+of|grant of|stipend of|prize of|"
+    r"|partial(?:ly)?\s*fund\w*|full scholarship",
+    re.I,
+)
+# A currency figure with award context next to it — so market sizes / salaries /
+# fees ("$7.32 billion market", "$50 fee") aren't picked up.
+_CTX_MONEY_RE = re.compile(
+    rf"(?:worth|valued at|award(?:ed)?\s+of|grant of|stipend of|prize of|"
     rf"bursary of|scholarship of|up to|receives?|covers?|provides?)\s+{_MONEY}"
     rf"|{_MONEY}\s*(?:per\s+(?:year|annum|month|semester)|annually|scholarship|"
     rf"grant|award|stipend|bursary|prize|in\s+(?:funding|scholarships?|prizes?)|towards)",
     re.I,
 )
-_MONEY_RE = re.compile(_MONEY, re.I)
 
 
 def _extract_amount(content: str):
-    m = _AMOUNT_RE.search(content)
-    if not m:
+    fm = _FUNDING_RE.search(content)
+    if fm:
+        return fm.group(0).strip()
+    cm = _CTX_MONEY_RE.search(content)
+    if not cm:
         return None
-    money = _MONEY_RE.search(m.group(0))      # keep just the figure, drop context words
-    return (money.group(0) if money else m.group(0)).strip()
+    money = _MONEY_RE.search(cm.group(0))
+    if not money:
+        return None
+    mstr = money.group(0).strip()
+    if re.search(r"million|billion", mstr, re.I):
+        return mstr
+    # Plain figures must be >= 1,000 — real awards are; travel/licence/fee
+    # components ("up to £850 travel", "licences valued at $150") are not.
+    num = re.sub(r"[^\d.]", "", mstr) or "0"
+    try:
+        return mstr if float(num) >= 1000 else None
+    except ValueError:
+        return None
 
 
 def _strip_html(s: str) -> str:
