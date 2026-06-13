@@ -19,7 +19,10 @@ API = f"{BASE_URL}/wp-json/wp/v2"
 CATEGORY_SLUG = "scholarship"
 CATEGORY_ID_FALLBACK = 13
 PER_PAGE = 100          # WordPress REST API max
-MAX_API_PAGES = 60      # up to ~6000 posts — covers the whole scholarship archive
+# Keep the recent/current slice (~400 newest), not the entire multi-year archive
+# — the site's own "Scholarships" filter shows only the current ones (~400), and
+# the deep archive is years of closed cycles.
+MAX_API_PAGES = 4
 
 
 def _strip_html(s: str) -> str:

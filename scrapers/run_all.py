@@ -195,7 +195,10 @@ def main():
             except Exception as e:
                 logger.error(f"{cls.__name__} failed: {e}")
 
-    purge_stale_scholarships(run_start_iso, total)
+    # Only purge stale rows on a FULL run — a --sites subset doesn't refresh the
+    # other sources, so purging by run timestamp would wrongly delete them.
+    if not args.sites:
+        purge_stale_scholarships(run_start_iso, total)
     # Expired/closed scholarships are kept (the UI tags them "Deadline over" /
     # closed) rather than purged, so they remain visible until refreshed.
     elapsed = time.time() - start
