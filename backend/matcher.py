@@ -19,7 +19,7 @@ from typing import List, Optional
 import httpx
 from pydantic import BaseModel
 
-from backend.database import get_conn, row_to_dict
+from backend.database import get_supabase, row_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -72,72 +72,61 @@ def _funding_need(budget: Optional[float]) -> str:
 # ---------------------------------------------------------------------------
 
 def get_candidates(profile: UserProfile, limit: int = 80) -> list[dict]:
-    conn = get_conn()
+    # Supabase has no raw-SQL access, and the table is small, so fetch all rows
+    # and filter/sort in Python.
+    sb = get_supabase()
     today = date.today().isoformat()
+    rows = [row_to_dict(r) for r in (sb.table("scholarships").select("*").execute().data or [])]
 
-    conditions = ["(deadline IS NULL OR deadline >= ?)"]
-    params: list = [today]
-
-    # 1. Degree level filter
-    lvl = profile.target_level.lower()
-    if lvl and lvl != "any":
-        conditions.append(
-            '(degree_levels LIKE ? OR degree_levels LIKE \'%"any"%\' OR degree_levels = \'[]\')'
-        )
-        params.append(f'%"{lvl}"%')
-
-    # 2. Nationality pre-filter (keep open-to-all AND matching)
-    nat = profile.nationality.strip().lower() if profile.nationality else ""
-    if nat and nat not in ("any", "all", "open"):
-        # Match records where eligible_nationalities is empty (open to all)
-        # OR contains the nationality OR contains "African" / "Commonwealth" style groups
-        conditions.append(
-            "(eligible_nationalities = '[]' OR eligible_nationalities IS NULL "
-            " OR eligible_nationalities LIKE ? OR eligible_nationalities LIKE '%African%'"
-            " OR eligible_nationalities LIKE '%Commonwealth%')"
-        )
-        params.append(f"%{profile.nationality}%")
-
-    # 3. Funding need filter — if user needs full funding, drop partial-only records
+    lvl = (profile.target_level or "").lower()
+    nat = (profile.nationality or "").strip().lower()
     need = _funding_need(profile.budget_usd)
-    if need == "full":
-        conditions.append(
-            "(funding_type = 'full' OR funding_type IS NULL OR funding_type = '')"
-        )
 
-    # 4. Host country pre-filter — if user has target countries, prefer those
-    target_countries = []
+    target_countries: list[str] = []
     if profile.extra:
         m = re.search(r"Preferred countries:\s*(.+)", profile.extra)
         if m:
-            target_countries = [c.strip() for c in m.group(1).split(",")]
+            target_countries = [c.strip() for c in m.group(1).split(",") if c.strip()]
 
-    where = "WHERE " + " AND ".join(conditions)
+    def keep(r: dict) -> bool:
+        dl = r.get("deadline")
+        if dl and dl < today:                 # expired
+            return False
+        if r.get("is_open") is False:          # explicitly closed
+            return False
+        if lvl and lvl != "any":               # degree level
+            degs = [d.lower() for d in (r.get("degree_levels") or [])]
+            if degs and "any" not in degs and lvl not in degs:
+                return False
+        if nat and nat not in ("any", "all", "open"):   # nationality eligibility
+            elig = r.get("eligible_nationalities") or []
+            if elig:
+                joined = " ".join(elig).lower()
+                if not (nat in joined or "african" in joined or "commonwealth" in joined):
+                    return False
+        if need == "full" and r.get("funding_type") == "partial":   # funding need
+            return False
+        return True
 
-    order = """ORDER BY
-        CASE WHEN deadline IS NULL THEN 1 ELSE 0 END,
-        deadline ASC,
-        CASE WHEN funding_type = 'full' THEN 0 WHEN funding_type = 'partial' THEN 1 ELSE 2 END,
-        CASE WHEN amount IS NOT NULL THEN 0 ELSE 1 END,
-        scraped_at DESC"""
+    def sort_key(r: dict):
+        dl = r.get("deadline")
+        ft = r.get("funding_type")
+        return (
+            0 if dl else 1,                                  # dated first
+            dl or "9999-12-31",                              # soonest deadline
+            0 if ft == "full" else 1 if ft == "partial" else 2,
+            0 if r.get("amount") else 1,
+            r.get("scraped_at") or "",
+        )
 
-    rows = conn.execute(
-        f"SELECT * FROM scholarships {where} {order} LIMIT ?",
-        params + [limit],
-    ).fetchall()
-    conn.close()
-
-    candidates = [row_to_dict(r) for r in rows]
+    candidates = sorted([r for r in rows if keep(r)], key=sort_key)[:limit]
 
     # Boost host-country matches to the front without discarding others
     if target_countries:
         boosted, rest = [], []
         for s in candidates:
-            hc = json.dumps(s.get("host_countries") or []).lower()
-            if any(tc.lower() in hc for tc in target_countries):
-                boosted.append(s)
-            else:
-                rest.append(s)
+            hc = " ".join(s.get("host_countries") or []).lower()
+            (boosted if any(tc.lower() in hc for tc in target_countries) else rest).append(s)
         candidates = boosted + rest
 
     return candidates
@@ -248,11 +237,35 @@ def _build_user_msg(profile: UserProfile, scholarships: list[dict]) -> str:
 # Groq call
 # ---------------------------------------------------------------------------
 
-async def match_scholarships(profile: UserProfile) -> dict:
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key:
-        raise ValueError("GROQ_API_KEY is not set. Add it to your .env file.")
+def _fallback_result(profile: UserProfile, candidates: list[dict]) -> dict:
+    """Heuristic ranking used when the LLM is unavailable, so Find My Match still
+    returns results (candidates are already sorted by deadline/funding)."""
+    matches = []
+    for i, s in enumerate(candidates[:10]):
+        ft = s.get("funding_type")
+        cov = "full" if ft == "full" else "partial" if ft == "partial" else "unknown"
+        host = ", ".join(s.get("host_countries") or []) or "your target country"
+        highlights = [h for h in [
+            s.get("amount") or (f"{ft.title()} funding" if ft else None),
+            f"Deadline {s['deadline']}" if s.get("deadline") else None,
+        ] if h]
+        matches.append({
+            "rank": i + 1,
+            "index": i + 1,
+            "scholarship": s,
+            "reason": f"Relevant to {profile.field} and open to applicants like you in {host}.",
+            "highlights": highlights,
+            "funding_coverage": cov,
+        })
+    return {
+        "summary": f"Found {len(matches)} scholarships for {profile.field}, ranked by upcoming deadline and funding.",
+        "matches": matches,
+        "profile": profile.model_dump(),
+        "total_candidates": len(candidates),
+    }
 
+
+async def match_scholarships(profile: UserProfile) -> dict:
     candidates = get_candidates(profile, limit=60)
 
     # Broaden if too few results after hard filters
@@ -267,27 +280,34 @@ async def match_scholarships(profile: UserProfile) -> dict:
     if not candidates:
         raise ValueError("No scholarships in the database. Run the scraper first.")
 
-    user_msg = _build_user_msg(profile, candidates)
+    # Fall back to heuristic ranking if the LLM key is missing.
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return _fallback_result(profile, candidates)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            GROQ_URL,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": GROQ_MODEL,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
-                "temperature": 0.2,
-                "max_tokens": 2500,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        resp.raise_for_status()
-
-    raw = resp.json()["choices"][0]["message"]["content"]
-    result = json.loads(raw)
+    try:
+        user_msg = _build_user_msg(profile, candidates)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 2500,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            resp.raise_for_status()
+        raw = resp.json()["choices"][0]["message"]["content"]
+        result = json.loads(raw)
+    except Exception:
+        # LLM call/parse failed — still return useful matches.
+        return _fallback_result(profile, candidates)
 
     for match in result.get("matches", []):
         idx = match.get("index", 1) - 1
