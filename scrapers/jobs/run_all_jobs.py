@@ -1,6 +1,6 @@
 """
 Run all job ingestion scripts and store results in Supabase.
-Sources: RemoteOK, Arbeitnow, UK Sponsor Register, Canada Job Bank, NHS Jobs, World Bank
+Sources: RemoteOK, Arbeitnow, Adzuna, Canada Job Bank, NHS Jobs, World Bank
 """
 import logging
 
@@ -8,7 +8,6 @@ from backend.database import upsert_jobs
 from scrapers.jobs.remoteok import fetch_remoteok_jobs
 from scrapers.jobs.arbeitnow import fetch_arbeitnow_jobs
 from scrapers.jobs.adzuna import fetch_adzuna_jobs
-from scrapers.jobs.uk_sponsor_register import fetch_uk_sponsor_jobs
 from scrapers.jobs.canada_job_bank import fetch_canada_job_bank_jobs
 from scrapers.jobs.nhs_jobs import fetch_nhs_jobs
 from scrapers.jobs.world_bank import fetch_world_bank_jobs
@@ -20,7 +19,6 @@ def run_all_jobs(on_source_done=None) -> int:
         (fetch_remoteok_jobs,        "RemoteOK"),
         (fetch_arbeitnow_jobs,       "Arbeitnow"),
         (fetch_adzuna_jobs,          "Adzuna"),
-        (fetch_uk_sponsor_jobs,      "UK Sponsor Register"),
         (fetch_canada_job_bank_jobs, "Canada Job Bank"),
         (fetch_nhs_jobs,             "NHS Jobs"),
         (fetch_world_bank_jobs,      "World Bank"),
