@@ -6,11 +6,11 @@ parse the job cards. Every listing on this site is a visa-sponsorship role.
 """
 import logging
 import re
-import requests
 from datetime import datetime
 from urllib.parse import urljoin
 
 from scrapers.normalizer import NormalizedJob
+from scrapers.jobs.http_util import polite_get
 from backend.database import upsert_jobs
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def fetch_visasponsor_jobs():
         for page in range(1, MAX_PAGES + 1):
             url = f"{BASE_URL}/api/jobs?country={country}&page={page}"
             try:
-                resp = requests.get(url, headers=HEADERS, timeout=20)
+                resp = polite_get(url)
                 resp.raise_for_status()
             except Exception as e:
                 logger.error(f"visasponsor [{country}] page {page} failed: {e}")

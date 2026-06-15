@@ -1,15 +1,15 @@
 """
 Ingest jobs from RemoteOK public API and store in jobs table.
 """
-import requests
 from datetime import datetime
 from scrapers.normalizer import NormalizedJob
+from scrapers.jobs.http_util import polite_get
 from backend.database import upsert_jobs
 
 REMOTEOK_API_URL = "https://remoteok.com/api"
 
 def fetch_remoteok_jobs():
-    resp = requests.get(REMOTEOK_API_URL)
+    resp = polite_get(REMOTEOK_API_URL)
     data = resp.json()
     jobs = []
     now = datetime.utcnow().isoformat()

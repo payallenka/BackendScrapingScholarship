@@ -2,10 +2,10 @@
 Ingest visa-sponsored jobs from Arbeitnow (free public API, no auth required).
 """
 import logging
-import requests
 from datetime import datetime
 
 from scrapers.normalizer import NormalizedJob, detect_visa_sponsorship
+from scrapers.jobs.http_util import polite_get
 from backend.database import upsert_jobs
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,9 @@ def fetch_arbeitnow_jobs():
 
     for page in range(1, MAX_PAGES + 1):
         try:
-            resp = requests.get(
+            resp = polite_get(
                 API_URL,
                 params={"visa_sponsorship": "true", "page": page},
-                timeout=15,
             )
             resp.raise_for_status()
             data = resp.json()

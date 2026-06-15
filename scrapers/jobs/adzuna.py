@@ -18,6 +18,7 @@ import requests
 from datetime import datetime
 
 from scrapers.normalizer import NormalizedJob, detect_visa_sponsorship
+from scrapers.jobs.http_util import polite_get
 from backend.database import upsert_jobs
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ def fetch_adzuna_jobs():
 
     for page in range(1, MAX_PAGES + 1):
         try:
-            resp = requests.get(
+            resp = polite_get(
                 f"{API_URL}/{page}",
                 params={
                     "app_id": APP_ID,
@@ -64,7 +65,6 @@ def fetch_adzuna_jobs():
                     "what": QUERY,
                     "content-type": "application/json",
                 },
-                timeout=20,
             )
             resp.raise_for_status()
             data = resp.json()

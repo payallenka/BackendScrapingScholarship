@@ -1,10 +1,12 @@
 import json
+import logging
 import os
 
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 def get_supabase() -> Client:
@@ -46,6 +48,11 @@ def upsert_jobs(jobs):
     jobs = deduped
 
     sb = get_supabase()
+    source = jobs[0].source
+    # Baseline before this run, to detect a silently-degraded scrape (rate limit
+    # / IP block / layout change) where success quietly drops without an error.
+    prev_count = sb.table("jobs").select("id", count="exact", head=True).eq("source", source).execute().count or 0
+
     rows = [
         {
             "id": j.id,
@@ -71,12 +78,21 @@ def upsert_jobs(jobs):
     ]
     sb.table("jobs").upsert(rows, on_conflict="id").execute()
 
-    # Remove stale jobs from this source not in the latest scrape batch.
-    # Each scraper stamps every job in a run with the same ingested_at, and the
-    # upsert above refreshes that timestamp on every current row — so anything
-    # left with a different ingested_at is stale. Keying off the timestamp avoids
-    # putting thousands of ids in the request URL (which overflows the URL length
-    # limit for large sources like the UK sponsor register).
-    source = jobs[0].source
+    # Remove stale jobs from this source not in the latest scrape batch. Each
+    # scraper stamps every job in a run with the same ingested_at, and the upsert
+    # above refreshes that timestamp on every current row — so anything left with
+    # a different ingested_at is stale. Keying off the timestamp avoids putting
+    # thousands of ids in the request URL.
+    #
+    # Degradation guard: if this run returned far fewer jobs than the source had
+    # before (a quiet rate-limit/IP-block/layout break), DON'T purge — that would
+    # silently delete good data. Log a warning instead so the drop is visible.
     batch_ts = jobs[0].ingested_at
-    sb.table("jobs").delete().eq("source", source).neq("ingested_at", batch_ts).execute()
+    if prev_count >= 10 and len(rows) < prev_count * 0.5:
+        logger.warning(
+            "[%s] scraped %d jobs vs %d previously (<50%%) — skipping stale purge "
+            "to avoid deleting good data (possible block/rate-limit/site change)",
+            source, len(rows), prev_count,
+        )
+    else:
+        sb.table("jobs").delete().eq("source", source).neq("ingested_at", batch_ts).execute()
