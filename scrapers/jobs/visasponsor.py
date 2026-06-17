@@ -26,6 +26,25 @@ HEADERS = {
 }
 _JOB_HREF_RE = re.compile(r"^/api/jobs/([0-9a-f]+)/", re.I)
 _DATE_RE = re.compile(r"(\d{2})-(\d{2})-(\d{4})")
+# Hosts that are visasponsor's own pages / socials, not the real job listing.
+_NOT_APPLY = ("visasponsor", "facebook.", "linkedin.", "twitter.", "instagram.",
+              "docs.google.", "helpsite.", "youtube.")
+
+
+def _extract_apply_url(detail_soup):
+    """Pull the real 'APPLY NOW' destination off a visasponsor detail page."""
+    # Prefer an explicit Apply link, else the first external job link.
+    for want_apply in (True, False):
+        for a in detail_soup.find_all("a", href=True):
+            href = a["href"]
+            if not href.startswith("http"):
+                continue
+            if any(b in href.lower() for b in _NOT_APPLY):
+                continue
+            if want_apply and "apply" not in a.get_text(" ", strip=True).lower():
+                continue
+            return href
+    return None
 
 
 def _parse_card(a, now):
@@ -110,8 +129,39 @@ def fetch_visasponsor_jobs():
             if len(cards) < 30:   # last page
                 break
 
+    _resolve_apply_urls(jobs, BeautifulSoup)
     logger.info(f"visasponsor: fetched {len(jobs)} jobs")
     return jobs
+
+
+def _resolve_apply_urls(jobs, BeautifulSoup):
+    """Replace each job's apply_url (currently the visasponsor detail page) with
+    the real listing the detail page's 'APPLY NOW' points to. Reuse already-
+    resolved links from the DB so we only fetch each detail page once."""
+    # Reuse the apply_url already stored for any job we've seen before, so we
+    # only fetch a detail page for genuinely NEW jobs (keeps nightly load tiny).
+    known = {}
+    try:
+        from backend.database import get_supabase
+        rows = get_supabase().table("jobs").select("id,apply_url").eq("source", "visasponsor").execute().data or []
+        known = {r["id"]: r["apply_url"] for r in rows if r.get("apply_url")}
+    except Exception as e:
+        logger.warning(f"visasponsor: could not load known apply URLs: {e}")
+
+    fetched = 0
+    for j in jobs:
+        if j.id in known:                    # seen before — reuse stored link, no re-fetch
+            j.apply_url = known[j.id]
+            continue
+        try:
+            soup = BeautifulSoup(polite_get(j.apply_url).text, "lxml")
+            direct = _extract_apply_url(soup)
+            if direct:
+                j.apply_url = direct          # else keep the detail page as fallback
+            fetched += 1
+        except Exception:
+            pass
+    logger.info(f"visasponsor: resolved apply links ({len(jobs) - fetched} reused, {fetched} fetched)")
 
 
 if __name__ == "__main__":
