@@ -32,17 +32,21 @@ _NOT_APPLY = ("visasponsor", "facebook.", "linkedin.", "twitter.", "instagram.",
 
 
 def _extract_apply_url(detail_soup):
-    """Pull the real 'APPLY NOW' destination off a visasponsor detail page."""
-    # Prefer an explicit Apply link, else the first external job link.
-    for want_apply in (True, False):
-        for a in detail_soup.find_all("a", href=True):
-            href = a["href"]
-            if not href.startswith("http"):
-                continue
-            if any(b in href.lower() for b in _NOT_APPLY):
-                continue
-            if want_apply and "apply" not in a.get_text(" ", strip=True).lower():
-                continue
+    """Pull the real 'APPLY NOW' destination off a visasponsor detail page.
+
+    The apply button always carries the class `application-button`; its href is
+    the real listing (often LinkedIn Jobs, Glassdoor, an ATS, or the employer
+    site). We take that href as long as it points off visasponsor itself."""
+    btn = detail_soup.select_one("a.application-button[href]")
+    if btn:
+        href = btn["href"].strip()
+        if href.startswith("http") and "visasponsor" not in href.lower():
+            return href
+    # Fallback: any external anchor whose text mentions "apply".
+    for a in detail_soup.find_all("a", href=True):
+        href = a["href"]
+        if href.startswith("http") and "visasponsor" not in href.lower() \
+                and "apply" in a.get_text(" ", strip=True).lower():
             return href
     return None
 
@@ -144,7 +148,10 @@ def _resolve_apply_urls(jobs, BeautifulSoup):
     try:
         from backend.database import get_supabase
         rows = get_supabase().table("jobs").select("id,apply_url").eq("source", "visasponsor").execute().data or []
-        known = {r["id"]: r["apply_url"] for r in rows if r.get("apply_url")}
+        # Only reuse links we actually resolved to a real listing. A stored
+        # visasponsor.jobs URL means a past run failed to resolve it, so re-try.
+        known = {r["id"]: r["apply_url"] for r in rows
+                 if r.get("apply_url") and "visasponsor.jobs" not in r["apply_url"]}
     except Exception as e:
         logger.warning(f"visasponsor: could not load known apply URLs: {e}")
 
